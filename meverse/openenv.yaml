@@ -1,0 +1,28 @@
+spec_version: 1
+name: meverse
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
+HF: true
+
+metadata:
+  title: "MEVerse - MEV-Aware RL Environment"
+  description: "A mini RL environment where agents learn to trade, provide liquidity, and survive adversarial MEV attacks in a simulated Uniswap V3 pool."
+  tags:
+    - openenv
+    - rl
+    - defi
+    - mev
+    - uniswap-v3
+
+tasks:
+  - name: easy
+    description: "Clean pool, no adversary. Learn tick-aware swapping and LP fee accrual."
+    difficulty: easy
+  - name: medium
+    description: "JIT bots active. Detect and counter JIT liquidity attacks."
+    difficulty: medium
+  - name: hard
+    description: "Adaptive adversary + high volatility. Survive MEV attacks while managing LP positions."
+    difficulty: hard
