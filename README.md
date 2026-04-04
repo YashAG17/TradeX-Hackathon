@@ -173,7 +173,7 @@ Mode behavior:
 
 ## Validation And Graders
 
-Validation logic is implemented in [meverse/validation.py](/d:/TradeX/meverse/validation.py). It:
+Validation logic is implemented in [meverse/validation.py](/home/casp1an/Code/TradeX1/meverse/validation.py). It:
 
 - enumerates all tasks
 - runs each task independently

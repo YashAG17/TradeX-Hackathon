@@ -16,8 +16,11 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from meverse.env import load_repo_env
 from meverse import SurveillanceAction, build_llm_client, choose_surveillance_action, list_task_names, load_policy_config, select_action
 from meverse.server.meverse_environment import MarketSurveillanceEnvironment
+
+load_repo_env()
 
 
 def run_policy(task_name: str, policy_name: str) -> Dict[str, float]:
@@ -83,4 +86,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
