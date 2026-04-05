@@ -103,8 +103,40 @@ SIGNAL_NAMES = [
 # Episode runner
 # ---------------------------------------------------------------------------
 
+def _empty_outputs(message: str) -> tuple:
+    """Return placeholder outputs with an error/info message."""
+    empty_fig = go.Figure()
+    empty_fig.update_layout(**PLOTLY_LAYOUT, height=200)
+    empty_fig.add_annotation(
+        text=message, showarrow=False,
+        font=dict(size=14, color=COLORS["warning"]),
+        xref="paper", yref="paper", x=0.5, y=0.5,
+    )
+    return (
+        empty_fig, empty_fig, empty_fig, empty_fig,
+        empty_fig, empty_fig, f"**Error:** {message}", [], empty_fig,
+    )
+
+
 def run_full_episode(task_name: str, policy: str, seed: int | None) -> tuple:
     """Run a complete episode and return all visualizations."""
+    # --- Input validation ---
+    valid_tasks = list_task_names()
+    if not task_name or task_name not in valid_tasks:
+        return _empty_outputs(f"Invalid task. Choose from: {', '.join(valid_tasks)}")
+
+    valid_policies = ["Heuristic", "Always Allow", "Random"]
+    if not policy or policy not in valid_policies:
+        return _empty_outputs(f"Invalid policy. Choose from: {', '.join(valid_policies)}")
+
+    if seed is not None:
+        try:
+            seed = int(seed)
+            if seed < 0 or seed > 999999:
+                return _empty_outputs("Seed must be between 0 and 999999.")
+        except (ValueError, TypeError):
+            return _empty_outputs("Seed must be a whole number (0-999999).")
+
     state = EpisodeState()
     state.task_name = task_name
 
@@ -307,52 +339,99 @@ def _make_amm_chart(state: EpisodeState) -> go.Figure:
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=("AMM Price & Liquidity", "Bot Confidence & Volatility"),
+        vertical_spacing=0.18,
+        subplot_titles=("AMM Price & Liquidity", "Bot Confidence, Volatility & Health"),
+        specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
     )
 
+    # Row 1: Price on primary y, Liquidity on secondary y
     fig.add_trace(go.Scatter(
         x=steps, y=state.amm_prices,
-        name="Price", line=dict(color=COLORS["accent2"], width=2),
-    ), row=1, col=1)
+        name="Price",
+        line=dict(color=COLORS["accent2"], width=2),
+        hovertemplate="Step %{x}<br>Price: %{y:.2f}<extra></extra>",
+    ), row=1, col=1, secondary_y=False)
 
     fig.add_trace(go.Scatter(
         x=steps, y=state.amm_liquidity,
-        name="Liquidity", line=dict(color=COLORS["accent"], width=2),
-        yaxis="y2",
-    ), row=1, col=1)
+        name="Liquidity",
+        line=dict(color=COLORS["accent"], width=2, dash="dash"),
+        hovertemplate="Step %{x}<br>Liquidity: %{y:.2f}<extra></extra>",
+    ), row=1, col=1, secondary_y=True)
 
+    # Row 2: Bot Confidence, Volatility, Health (all 0-1 scale)
     fig.add_trace(go.Scatter(
         x=steps, y=state.amm_bot_conf,
-        name="Bot Confidence", line=dict(color=COLORS["danger"], width=2),
+        name="Bot Confidence",
+        line=dict(color=COLORS["danger"], width=2),
+        hovertemplate="Step %{x}<br>Bot Conf: %{y:.3f}<extra></extra>",
     ), row=2, col=1)
 
     fig.add_trace(go.Scatter(
         x=steps, y=state.amm_volatility,
-        name="Volatility", line=dict(color=COLORS["warning"], width=2),
+        name="Volatility",
+        line=dict(color=COLORS["warning"], width=2, dash="dot"),
+        hovertemplate="Step %{x}<br>Volatility: %{y:.3f}<extra></extra>",
     ), row=2, col=1)
 
     fig.add_trace(go.Scatter(
         x=steps, y=state.amm_health,
-        name="Health Index", line=dict(color=COLORS["success"], width=2),
+        name="Health Index",
+        line=dict(color=COLORS["success"], width=2, dash="dashdot"),
+        hovertemplate="Step %{x}<br>Health: %{y:.3f}<extra></extra>",
     ), row=2, col=1)
+
+    # Axis labels with high-contrast colors
+    fig.update_yaxes(
+        title_text="Price",
+        title_font=dict(color=COLORS["accent2"], size=12),
+        tickfont=dict(color=COLORS["accent2"], size=10),
+        gridcolor="#2a2d3a",
+        row=1, col=1, secondary_y=False,
+    )
+    fig.update_yaxes(
+        title_text="Liquidity",
+        title_font=dict(color=COLORS["accent"], size=12),
+        tickfont=dict(color=COLORS["accent"], size=10),
+        gridcolor="rgba(0,0,0,0)",
+        row=1, col=1, secondary_y=True,
+    )
+    fig.update_yaxes(
+        title_text="Value (0-1)",
+        title_font=dict(color="#e4e6eb", size=12),
+        tickfont=dict(color="#e4e6eb", size=10),
+        gridcolor="#2a2d3a",
+        range=[-0.05, 1.05],
+        row=2, col=1,
+    )
+    fig.update_xaxes(
+        title_text="Step",
+        title_font=dict(color="#e4e6eb", size=12),
+        tickfont=dict(color="#e4e6eb", size=10),
+        gridcolor="#2a2d3a",
+        row=2, col=1,
+    )
+    fig.update_xaxes(gridcolor="#2a2d3a", tickfont=dict(color="#e4e6eb", size=10), row=1, col=1)
 
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(26,29,39,0.8)",
+        plot_bgcolor="#1a1d27",
         font=dict(color="#e4e6eb", family="Inter, system-ui, sans-serif"),
-        margin=dict(l=50, r=30, t=40, b=40),
-        legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
-        height=480,
+        margin=dict(l=65, r=65, t=50, b=50),
+        legend=dict(
+            orientation="h", y=1.10, x=0.5, xanchor="center",
+            bgcolor="rgba(26,29,39,0.9)",
+            bordercolor="#2a2d3a", borderwidth=1,
+            font=dict(size=11, color="#e4e6eb"),
+        ),
+        height=540,
     )
 
-    for i in range(1, 3):
-        fig.update_xaxes(gridcolor="#2a2d3a", row=i, col=1)
-        fig.update_yaxes(gridcolor="#2a2d3a", row=i, col=1)
-
-    # Style subplot titles
+    # Style subplot titles — bold white on dark background
     for ann in fig.layout.annotations:
-        ann.font = dict(size=12, color="#e4e6eb")
+        ann.font = dict(size=13, color="#e4e6eb", family="Inter, system-ui, sans-serif")
+        ann.bgcolor = "#1a1d27"
+        ann.borderpad = 4
 
     return fig
 
@@ -550,6 +629,22 @@ def _make_amm_gauges(state: EpisodeState) -> go.Figure:
 # ---------------------------------------------------------------------------
 
 def compare_policies(task_name: str, seed: int | None) -> tuple:
+    valid_tasks = list_task_names()
+    if not task_name or task_name not in valid_tasks:
+        empty = go.Figure()
+        empty.update_layout(**PLOTLY_LAYOUT, height=200)
+        return empty, f"**Error:** Invalid task. Choose from: {', '.join(valid_tasks)}"
+    if seed is not None:
+        try:
+            seed = int(seed)
+            if seed < 0 or seed > 999999:
+                empty = go.Figure()
+                empty.update_layout(**PLOTLY_LAYOUT, height=200)
+                return empty, "**Error:** Seed must be between 0 and 999999."
+        except (ValueError, TypeError):
+            empty = go.Figure()
+            empty.update_layout(**PLOTLY_LAYOUT, height=200)
+            return empty, "**Error:** Seed must be a whole number."
     if seed == 0:
         seed = 42
 
@@ -833,14 +928,18 @@ def build_app() -> gr.Blocks:
                             choices=list_task_names(),
                             value="full_market_surveillance",
                             label="Task",
+                            info="Surveillance scenario. Burst=easy, Pattern=medium, Full=hard.",
                         )
                         policy_dd = gr.Dropdown(
                             choices=["Heuristic", "Always Allow", "Random"],
                             value="Heuristic",
                             label="Policy",
+                            info="Heuristic uses threshold rules. Always Allow never blocks. Random picks randomly.",
                         )
                         seed_input = gr.Number(
                             value=42, label="Seed (0 = random)", precision=0,
+                            info="Fixed seed for reproducible runs. Set 0 for a random episode. Range: 0-999999.",
+                            minimum=0, maximum=999999,
                         )
                         run_btn = gr.Button("Run Episode", variant="primary", size="lg")
 
@@ -889,8 +988,13 @@ def build_app() -> gr.Blocks:
                         choices=list_task_names(),
                         value="full_market_surveillance",
                         label="Task",
+                        info="Select the surveillance task to compare policies against.",
                     )
-                    cmp_seed = gr.Number(value=42, label="Seed", precision=0)
+                    cmp_seed = gr.Number(
+                        value=42, label="Seed", precision=0,
+                        info="All three policies run on this same seed for a fair comparison. Range: 1-999999.",
+                        minimum=1, maximum=999999,
+                    )
                     cmp_btn = gr.Button("Compare", variant="primary")
 
                 cmp_chart = gr.Plot(label="Comparison Chart")
@@ -905,7 +1009,7 @@ def build_app() -> gr.Blocks:
             # =============== TAB 3: Telemetry Viewer ===============
             with gr.Tab("Telemetry Viewer"):
                 gr.Markdown("#### Upload a JSONL telemetry file to replay and visualize")
-                telem_file = gr.File(label="Upload .jsonl", file_types=[".jsonl"])
+                telem_file = gr.File(label="Upload .jsonl", file_types=[".jsonl"], file_count="single")
                 telem_chart = gr.Plot(label="Telemetry Rewards")
                 telem_summary = gr.Markdown()
 
