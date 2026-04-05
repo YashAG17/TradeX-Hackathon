@@ -1076,9 +1076,9 @@ input[type="number"] {
     border: 2px dashed #3a3d4a !important;
     border-radius: 12px !important;
     background: rgba(26, 29, 39, 0.6) !important;
-    transition: border-color 0.3s ease, background 0.3s ease;
     min-height: 180px !important;
-    padding: 16px !important;
+    padding: 8px !important;
+    transition: border-color 0.3s ease, background 0.3s ease;
 }
 #telem-upload:hover {
     border-color: #00c9a7 !important;
