@@ -1,3 +1,14 @@
+---
+title: TradeX Surveillance Dashboard
+emoji: "📊"
+colorFrom: blue
+colorTo: green
+sdk: gradio
+sdk_version: "6.11.0"
+app_file: app.py
+pinned: false
+---
+
 # Bot-aware Market Surveillance in Simulated AMM Trading
 
 This project is a simulation environment for reinforcement learning and decision intelligence. It is not a trading bot, DeFi product, wallet, liquidity manager, or blockchain integration demo.
