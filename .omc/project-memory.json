@@ -1,11 +1,20 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1775347988343,
+  "lastScanned": 1775479572959,
   "projectRoot": "/home/casp1an/Code/TradeX1",
   "techStack": {
-    "languages": [],
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "requirements.txt"
+        ]
+      }
+    ],
     "frameworks": [],
-    "packageManager": null,
+    "packageManager": "pip",
     "runtime": null
   },
   "build": {
@@ -35,12 +44,13 @@
     "__pycache__": {
       "path": "__pycache__",
       "purpose": null,
-      "fileCount": 4,
-      "lastAccessed": 1775347988341,
+      "fileCount": 5,
+      "lastAccessed": 1775479572954,
       "keyFiles": [
         "app.cpython-314.pyc",
         "client.cpython-314.pyc",
         "compare_policies.cpython-314.pyc",
+        "dashboard.cpython-314.pyc",
         "inference.cpython-314.pyc"
       ]
     },
@@ -48,7 +58,7 @@
       "path": "context",
       "purpose": null,
       "fileCount": 5,
-      "lastAccessed": 1775347988341,
+      "lastAccessed": 1775479572954,
       "keyFiles": [
         "Requirements.txt",
         "checklist.txt",
@@ -61,7 +71,7 @@
       "path": "meverse",
       "purpose": null,
       "fileCount": 14,
-      "lastAccessed": 1775347988341,
+      "lastAccessed": 1775479572955,
       "keyFiles": [
         "README.md",
         "__init__.py",
@@ -74,7 +84,7 @@
       "path": "telemetry",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1775347988341,
+      "lastAccessed": 1775479572957,
       "keyFiles": [
         "test-telemetry.jsonl"
       ]
@@ -83,32 +93,38 @@
   "hotPaths": [
     {
       "path": "dashboard.py",
-      "accessCount": 43,
-      "lastAccessed": 1775395326737,
+      "accessCount": 44,
+      "lastAccessed": 1775480514826,
       "type": "file"
     },
     {
       "path": "inference.py",
-      "accessCount": 21,
-      "lastAccessed": 1775348089010,
+      "accessCount": 22,
+      "lastAccessed": 1775480502309,
       "type": "file"
     },
     {
       "path": "Dockerfile",
-      "accessCount": 11,
-      "lastAccessed": 1775376946985,
-      "type": "file"
-    },
-    {
-      "path": "app.py",
-      "accessCount": 9,
-      "lastAccessed": 1775394214214,
+      "accessCount": 12,
+      "lastAccessed": 1775480513902,
       "type": "file"
     },
     {
       "path": "README.md",
-      "accessCount": 8,
-      "lastAccessed": 1775395310900,
+      "accessCount": 11,
+      "lastAccessed": 1775480848441,
+      "type": "file"
+    },
+    {
+      "path": "app.py",
+      "accessCount": 10,
+      "lastAccessed": 1775480502588,
+      "type": "file"
+    },
+    {
+      "path": "meverse/amm.py",
+      "accessCount": 6,
+      "lastAccessed": 1775480506804,
       "type": "file"
     },
     {
@@ -118,27 +134,21 @@
       "type": "file"
     },
     {
-      "path": "meverse/amm.py",
+      "path": "meverse/models.py",
       "accessCount": 5,
-      "lastAccessed": 1775348101602,
+      "lastAccessed": 1775480507655,
+      "type": "file"
+    },
+    {
+      "path": "meverse/tasks.py",
+      "accessCount": 5,
+      "lastAccessed": 1775480508581,
       "type": "file"
     },
     {
       "path": "context/RLiquidity_V3_Project.md",
       "accessCount": 4,
       "lastAccessed": 1775269806488,
-      "type": "file"
-    },
-    {
-      "path": "meverse/models.py",
-      "accessCount": 4,
-      "lastAccessed": 1775348101286,
-      "type": "file"
-    },
-    {
-      "path": "meverse/tasks.py",
-      "accessCount": 4,
-      "lastAccessed": 1775348102087,
       "type": "file"
     },
     {
@@ -149,8 +159,32 @@
     },
     {
       "path": "meverse/__init__.py",
+      "accessCount": 4,
+      "lastAccessed": 1775480508686,
+      "type": "file"
+    },
+    {
+      "path": "openenv.yaml",
       "accessCount": 3,
-      "lastAccessed": 1775268935779,
+      "lastAccessed": 1775480503244,
+      "type": "file"
+    },
+    {
+      "path": "meverse/baseline_policy.py",
+      "accessCount": 3,
+      "lastAccessed": 1775480507342,
+      "type": "file"
+    },
+    {
+      "path": "meverse/validation.py",
+      "accessCount": 3,
+      "lastAccessed": 1775480508899,
+      "type": "file"
+    },
+    {
+      "path": "requirements.txt",
+      "accessCount": 3,
+      "lastAccessed": 1775480514514,
       "type": "file"
     },
     {
@@ -175,30 +209,6 @@
       "path": "meverse/server/__init__.py",
       "accessCount": 2,
       "lastAccessed": 1775123358075,
-      "type": "file"
-    },
-    {
-      "path": "meverse/validation.py",
-      "accessCount": 2,
-      "lastAccessed": 1775272220351,
-      "type": "file"
-    },
-    {
-      "path": "meverse/baseline_policy.py",
-      "accessCount": 2,
-      "lastAccessed": 1775348102502,
-      "type": "file"
-    },
-    {
-      "path": "openenv.yaml",
-      "accessCount": 2,
-      "lastAccessed": 1775375705664,
-      "type": "file"
-    },
-    {
-      "path": "requirements.txt",
-      "accessCount": 2,
-      "lastAccessed": 1775376255578,
       "type": "file"
     },
     {
@@ -277,6 +287,12 @@
       "path": ".env.example",
       "accessCount": 1,
       "lastAccessed": 1775377251002,
+      "type": "file"
+    },
+    {
+      "path": "compare_policies.py",
+      "accessCount": 1,
+      "lastAccessed": 1775480513479,
       "type": "file"
     }
   ],
