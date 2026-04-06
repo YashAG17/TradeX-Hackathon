@@ -28,6 +28,7 @@ This is **not** a trading bot, DeFi product, wallet, liquidity manager, or block
 - [Environment Variables](#environment-variables)
 - [Debug Telemetry](#debug-telemetry)
 - [Project Structure](#project-structure)
+- [Documentation](#documentation)
 - [For Judges](#for-judges)
 - [Futuristic Roadmap](#futuristic-roadmap)
 
@@ -171,7 +172,7 @@ A score of `>= 0.6` is considered a passing episode.
 
 ## Tasks
 
-The benchmark includes three deterministic tasks with escalating difficulty. **All three tasks are evaluated independently** — the OpenEnv harness reads `openenv.yaml`, discovers each task, and runs `inference.py` once per task by setting `MEVERSE_TASK`. For local testing, you can select a specific task with `MEVERSE_TASK="burst_detection" python inference.py`.
+The benchmark includes three deterministic tasks with escalating difficulty. **For hackathon submission, you submit your GitHub repo. Judges will clone it, run `python inference.py`, and evaluate the `[START]`, `[STEP]`, and `[END]` stdout logs.** By default, `inference.py` runs `full_market_surveillance`. Judges may also run the other tasks individually by setting `MEVERSE_TASK`. For local testing, you can select a specific task with `MEVERSE_TASK="burst_detection" python inference.py`.
 
 ### `burst_detection` (Easy — 50 steps)
 
@@ -343,6 +344,9 @@ TradeX1/
 ├── requirements.txt          # Root-level Python dependencies
 ├── validate_submission.sh    # Submission validation script
 ├── telemetry/                # Debug telemetry output directory
+├── docs/                     # Detailed documentation
+│   ├── Dashboard.md          # Dashboard visualizations reference
+│   └── playground.md         # Playground interface reference
 └── meverse/                  # Core environment package
     ├── __init__.py           # Package exports
     ├── amm.py                # Constant-product AMM state machine and procedural generation
@@ -356,6 +360,15 @@ TradeX1/
     └── server/               # FastAPI OpenEnv server implementation
         └── meverse_environment.py  # MarketSurveillanceEnvironment class
 ```
+
+---
+
+## Documentation
+
+Detailed documentation for the UI components is available in the `docs/` folder:
+
+- **[Dashboard.md](docs/Dashboard.md)** — Complete reference for all 10+ visualizations, charts, gauges, heatmaps, and data tables in the Gradio dashboard. Covers every element's purpose, data source, color coding, and interpretation guide.
+- **[playground.md](docs/playground.md)** — Reference for the OpenEnv Playground interface, including action/observation models, data flow, HF Space integration, and comparison with the Dashboard.
 
 ---
 
