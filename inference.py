@@ -39,9 +39,9 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_value}", flush=True)
 
 
-def log_end(success: bool, steps: int, rewards: list[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     reward_text = ",".join(f"{reward:.2f}" for reward in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={reward_text}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.4f} rewards={reward_text}", flush=True)
 
 
 def build_signal_snapshot(observation) -> dict[str, Any]:
@@ -182,8 +182,8 @@ def select_action(observation) -> str:
     return choose_surveillance_action(observation)
 
 
-def main() -> None:
-    task_name = TASK_NAME if TASK_NAME in list_task_names() else "full_market_surveillance"
+def run_task(task_name: str) -> None:
+    """Run a single task: reset, step through, grade, and log."""
     demo_mode = env_flag("DEMO_MODE", False)
     eval_mode = False if demo_mode else env_flag("EVAL_MODE", True)
     env = MarketSurveillanceEnvironment(task=task_name, eval_mode=eval_mode, demo_mode=demo_mode)
@@ -191,6 +191,7 @@ def main() -> None:
     telemetry = DebugTelemetryWriter(enabled=env_flag("DEBUG_TELEMETRY", False), task_name=task_name)
     rewards: list[float] = []
     steps = 0
+    score = 0.0
 
     log_start(task_name, BENCHMARK, MODEL_NAME if HF_TOKEN else "heuristic-fallback")
     telemetry.write(
@@ -228,7 +229,8 @@ def main() -> None:
             )
             log_step(step=steps, action=final_action, reward=reward, done=observation.done, error=observation.metadata.get("last_action_error"))
         grade = env.grade()
-        success = bool(grade["score"] >= 0.6)
+        score = grade["score"]
+        success = bool(score >= 0.6)
     except KeyboardInterrupt:
         success = False
         telemetry.write(
@@ -253,6 +255,8 @@ def main() -> None:
             final_grade = env.grade() if steps > 0 else None
         except Exception:
             final_grade = None
+        if final_grade:
+            score = final_grade["score"]
         telemetry.write(
             "episode_end",
             {
@@ -263,7 +267,13 @@ def main() -> None:
                 "telemetry_path": str(telemetry.path) if telemetry.path else None,
             },
         )
-        log_end(success=success, steps=steps, rewards=rewards)
+        log_end(success=success, steps=steps, score=score, rewards=rewards)
+
+
+def main() -> None:
+    all_tasks = list_task_names()
+    for task_name in all_tasks:
+        run_task(task_name)
 
 
 if __name__ == "__main__":
