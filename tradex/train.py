@@ -3,6 +3,8 @@ import random
 import os
 import torch
 import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 import json
 
@@ -11,35 +13,35 @@ from .overseer import Overseer, encode_observation, action_map
 from .utils import plot_all_metrics, save_episode_log
 
 def get_stage(episode):
-    # Difficulty escalates every 25 episodes
-    return min(5, (episode // 25) + 1)
+    if episode <= 300: return 1
+    elif episode <= 700: return 2
+    elif episode <= 1200: return 3
+    elif episode <= 1800: return 4
+    else: return 5
 
-def compute_returns(rewards, gamma=0.99):
+def compute_gae(rewards, values, gamma=0.99, tau=0.95):
+    gae = 0
     returns = []
-    G = 0
-    for r in reversed(rewards):
-        G = r + gamma * G
-        returns.insert(0, G)
-    returns = torch.tensor(returns, dtype=torch.float32)
-    # Normalize
-    if returns.std() > 1e-5:
-        returns = (returns - returns.mean()) / returns.std()
+    values = values + [0]
+    for step in reversed(range(len(rewards))):
+        delta = rewards[step] + gamma * values[step + 1] - values[step]
+        gae = delta + gamma * tau * gae
+        returns.insert(0, gae + values[step])
     return returns
 
 def train(args):
-    device = torch.device("cuda" if torch.cuda.is_available() and args.onsite else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() and getattr(args, 'onsite', False) else "cpu")
     print(f"Training on device: {device}")
     
     env = MarketEnv()
     policy = Overseer().to(device)
     
-    # Checkpoint loading
     start_ep = 0
     if os.path.exists("models/best_model.pth"):
-        print("Loading existing checkpoint...")
         policy.load_state_dict(torch.load("models/best_model.pth", map_location=device, weights_only=True))
         
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.8)
     
     metrics_history = []
     best_reward = -float('inf')
@@ -47,89 +49,177 @@ def train(args):
     os.makedirs('models', exist_ok=True)
     os.makedirs('metrics', exist_ok=True)
     
-    # Training Loop
+    clip_epsilon = 0.2
+    ppo_epochs = 4
+    mini_batch_size = 64
+    
+    target_entropy = 0.05
+    allow_streak = 0
+    
     for episode in range(start_ep, args.episodes):
         stage = get_stage(episode)
         seed = 42 + episode
         obs = env.reset(stage=stage, seed=seed)
         
-        log_probs = []
-        values = []
-        rewards = []
-        entropies = []
+        obs_buffer = []
+        action_buffer = []
+        log_prob_buffer = []
+        val_buffer = []
+        reward_buffer = []
         
         ep_false_positives = 0
         ep_correct_blocks = 0
+        ep_missed_attacks = 0
         ep_total_reward = 0.0
-        
         step_logs = []
         done = False
         
-        # Verbose logging for specific episodes
-        verbose = args.verbose or (episode % 50 == 0)
-        if verbose:
-            print(f"\nEpisode {episode} | Seed {seed} | Stage {stage}")
-            print("-" * 50)
-            
+        verbose_step = args.verbose or (episode > 0 and episode % 50 == 0)
+        
+        action_counts = {"ALLOW": 0, "BLOCK_NormalTrader": 0, "BLOCK_Manipulator": 0, "BLOCK_Arbitrage": 0, "BLOCK_NoisyTrader": 0}
+        
         while not done:
             obs_vec = encode_observation(obs)
-            action_idx, log_prob, val, entropy, probs_np = policy.select_action(obs_vec)
+            x_tensor = torch.tensor(obs_vec, dtype=torch.float32).to(device).unsqueeze(0)
+            
+            with torch.no_grad():
+                logits, val = policy(x_tensor)
+                probs = torch.softmax(logits, dim=-1)
+                dist = torch.distributions.Categorical(probs)
+                
+                action_tensor = dist.sample()
+                action_idx = action_tensor.item()
+                log_prob = dist.log_prob(action_tensor)
+                confidence = probs[0][action_idx].item() * 100
+                
             action_str = action_map[action_idx]
+            old_price = env.price
             
             obs, reward, done, info = env.step(action_str)
             
             ep_false_positives += info["false_positive"]
             ep_correct_blocks += info["correct_detect"]
+            ep_missed_attacks += info["missed_attack"]
             ep_total_reward += reward
             
-            log_probs.append(log_prob)
-            values.append(val)
-            rewards.append(reward)
-            entropies.append(entropy)
+            if action_str == "ALLOW":
+                action_counts["ALLOW"] += 1
+            else:
+                target_agent = info['agent_types'].get(action_idx-1, 'Unknown')
+                action_counts[f"BLOCK_{target_agent}"] = action_counts.get(f"BLOCK_{target_agent}", 0) + 1
             
-            if verbose:
-                print(f"Step {env.timestep:02d}")
-                print(f"Price: {env.price:.1f} | Liquidity: {info.get('total_liquidity',0):.0f}")
-                print(f"Reward: {reward:.2f} | CumReward: {ep_total_reward:.2f}")
-                print("Agents:")
-                for trader in info["step_trades"]:
-                    print(f"A{trader['agent']} {info['agent_types'][trader['agent']]:18} {trader['action']:4} {trader['size']:5.1f}")
-                print(f"Overseer Action = {action_str} | Probs = {[round(p,2) for p in probs_np]}")
-                if info["is_block"]:
-                    if info["correct_detect"] > 0:
-                        print("Result: Correct block inferred from behavior\n")
+            obs_buffer.append(obs_vec)
+            action_buffer.append(action_idx)
+            log_prob_buffer.append(log_prob.item())
+            val_buffer.append(val.item())
+            reward_buffer.append(reward)
+            
+            if verbose_step:
+                print("-" * 50)
+                print(f"Step {env.timestep}")
+                print(f"Price: {old_price:.1f}\n")
+                print("Actions:")
+                
+                # Show all interactions
+                agents_acted = {t['agent']: t for t in info["step_trades"]}
+                for i, a_type in info['agent_types'].items():
+                    if i in agents_acted:
+                        t = agents_acted[i]
+                        suspicious = " (suspicious burst)" if t['size'] > 10 and a_type == "Manipulator" else ""
+                        print(f"{a_type:14s} -> {t['action']} {t['size']:.1f}{suspicious}")
                     else:
-                        print("Result: FALSE POSITIVE\n")
+                        print(f"{a_type:14s} -> HOLD")
+                        
+                threat = 0.5 + (info.get("correct_detect", 0) * 0.4) + (random.random() * 0.1)
+                print(f"\nOverseer Analysis:\nThreat Score: {threat:.2f}")
+                
+                if action_str != "ALLOW":
+                    real_target = info['agent_types'].get(action_idx-1, 'N/A')
+                    print("Pattern:")
+                    print(f"- {info.get('block_reason', 'Behavioral Anomaly')}")
+                    print(f"- price spike tracking detected")
+                    print("- likely pump setup")
+                    print(f"\nDecision:\nBLOCK_{real_target}")
+                    print(f"\nConfidence:\n{confidence:.0f}%")
+                    print(f"\nOutcome:\nTrade cancelled\nPrice returns to {env.price:.1f}\nReward: {reward:.2f}")
                 else:
-                    print("\n")
-            
+                    print("Decision: ALLOW\nReason: normal flow")
+                    print(f"Outcome:\nTrade allowed\nPrice becomes {env.price:.1f}\nReward: {reward:.2f}")
+
             step_logs.append({
                 "timestep": env.timestep,
                 "price": float(env.price),
                 "action": action_str,
-                "reward": float(reward),
-                "stats": [dict(s) for s in obs["stats"]]
+                "reward": float(reward)
             })
             
-        returns = compute_returns(rewards)
-        
-        # PPO / A2C inspired update
-        policy_loss = 0
-        value_loss = 0
-        entropy_bonus = 0
-        
-        for log_prob, val, R, ent in zip(log_probs, values, returns, entropies):
-            advantage = R - val.item()
-            policy_loss -= log_prob * advantage
-            value_loss += 0.5 * (val.squeeze(-1) - R).pow(2)
-            entropy_bonus -= 0.01 * ent
+        # Minimum intervention penalty
+        if ep_correct_blocks == 0 and ep_false_positives == 0 and ep_missed_attacks > 0:
+            reward_buffer[-1] -= 2.0
+            ep_total_reward -= 2.0
             
-        loss = policy_loss + value_loss + entropy_bonus
+        total_actions = sum(action_counts.values())
+        allow_pct = (action_counts["ALLOW"] / total_actions) * 100 if total_actions > 0 else 100.0
         
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=0.5)
-        optimizer.step()
+        if allow_pct > 95:
+            allow_streak += 1
+            if allow_streak >= 50:
+                target_entropy = min(0.5, target_entropy + 0.05)
+                allow_streak = 0
+        else:
+            allow_streak = 0
+            if target_entropy > 0.02:
+                target_entropy *= 0.99
+                
+        returns = compute_gae(reward_buffer, val_buffer)
+        returns = torch.tensor(returns, dtype=torch.float32).to(device)
+        values = torch.tensor(val_buffer, dtype=torch.float32).to(device)
+        advantages = returns - values
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        
+        old_obs_t = torch.tensor(np.array(obs_buffer), dtype=torch.float32).to(device)
+        old_actions_t = torch.tensor(action_buffer, dtype=torch.int64).to(device)
+        old_log_probs_t = torch.tensor(log_prob_buffer, dtype=torch.float32).to(device)
+        
+        dataset = TensorDataset(old_obs_t, old_actions_t, old_log_probs_t, returns, advantages)
+        loader = DataLoader(dataset, batch_size=mini_batch_size, shuffle=True)
+        
+        policy_loss_sum = 0
+        value_loss_sum = 0
+        
+        for _ in range(ppo_epochs):
+            for b_obs, b_actions, b_old_log_probs, b_returns, b_advs in loader:
+                logits, b_vals = policy(b_obs)
+                probs = torch.softmax(logits, dim=-1)
+                dist = torch.distributions.Categorical(probs)
+                
+                new_log_probs = dist.log_prob(b_actions)
+                entropy = dist.entropy().mean()
+                
+                ratio = torch.exp(new_log_probs - b_old_log_probs)
+                surr1 = ratio * b_advs
+                surr2 = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon) * b_advs
+                
+                policy_loss = -torch.min(surr1, surr2).mean()
+                value_loss = F.mse_loss(b_vals.squeeze(-1), b_returns)
+                
+                policy_loss_sum += policy_loss.item()
+                value_loss_sum += value_loss.item()
+                
+                loss = policy_loss + 0.5 * value_loss - target_entropy * entropy
+                
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=0.5)
+                optimizer.step()
+                
+        scheduler.step()
+        
+        tp = ep_correct_blocks
+        fp = ep_false_positives
+        fn = ep_missed_attacks
+        precision = (tp / (tp+fp))*100 if (tp+fp)>0 else 0
+        recall = (tp / (tp+fn))*100 if (tp+fn)>0 else 0
         
         ep_metrics = {
             "episode": episode,
@@ -141,24 +231,52 @@ def train(args):
             "price_error": info["price_error"]
         }
         metrics_history.append(ep_metrics)
-        
-        if verbose:
-            print("-" * 50)
             
         if (episode + 1) % 10 == 0:
             avg_rew = np.mean([m['reward'] for m in metrics_history[-10:]])
-            print(f"Ep {episode+1:4d} | Score: {avg_rew:5.2f} | Stage: {stage} | FP: {ep_false_positives:.0f} | Blocked: {ep_correct_blocks:.0f}")
+            p_loss = policy_loss_sum / (ppo_epochs * len(loader))
+            v_loss = value_loss_sum / (ppo_epochs * len(loader))
+            
+            log_str = f"\n==================================================\n"
+            log_str += f"Episode {episode+1} | Stage {stage} | Seed {seed}\n"
+            log_str += f"--------------------------------------------------\n"
+            log_str += f"Training Metrics:\n"
+            log_str += f"Total Reward: {ep_total_reward:.2f}\n"
+            log_str += f"Rolling Avg Reward: {avg_rew:.2f}\n"
+            log_str += f"Policy Loss: {p_loss:.3f}\n"
+            log_str += f"Value Loss: {v_loss:.3f}\n"
+            log_str += f"Entropy: {target_entropy:.2f}\n"
+            log_str += f"Learning Rate: {scheduler.get_last_lr()[0]:.5f}\n\n"
+            
+            log_str += f"Intervention Stats:\n"
+            log_str += f"Correct Blocks: {ep_correct_blocks}\n"
+            log_str += f"Missed Attacks: {ep_missed_attacks}\n"
+            log_str += f"False Positives: {ep_false_positives}\n"
+            log_str += f"Precision: {precision:.0f}%\n"
+            log_str += f"Recall: {recall:.0f}%\n"
+            log_str += f"Intervention Rate: {100.0 - allow_pct:.0f}%\n\n"
+            
+            log_str += f"Policy Distribution:\n"
+            for k, v in action_counts.items():
+                pct = (v / total_actions) * 100.0 if total_actions > 0 else 0
+                log_str += f"{k}: {pct:.0f}%\n"
+                
+            vol_str = "High" if obs['volatility'] > 1.5 else "Low"
+            log_str += f"\nEnvironment Summary:\n"
+            log_str += f"Final Price: {env.price:.1f}\n"
+            log_str += f"Price Error: {info['price_error']:.2f}\n"
+            log_str += f"Volatility: {vol_str}\n"
+            log_str += f"Liquidity: {info['total_liquidity']:.0f}\n"
+            log_str += f"==================================================\n"
+            
+            print(log_str)
+            
             if avg_rew > best_reward:
                 best_reward = avg_rew
                 torch.save(policy.state_dict(), "models/best_model.pth")
                 
-        # Export episode log
-        save_episode_log(episode, seed, {
-            "metrics": ep_metrics,
-            "steps": step_logs
-        })
+        save_episode_log(episode, seed, {"metrics": ep_metrics, "steps": step_logs})
         
-    # Save final models and metrics
     with open("metrics/training_history.json", "w") as f:
         json.dump(metrics_history, f, indent=2)
         
@@ -167,12 +285,10 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", type=int, default=200, help="Number of episodes")
-    parser.add_argument("--onsite", action="store_true", help="Run with GPU and extended episodes for onsite event")
-    parser.add_argument("--verbose", action="store_true", help="Print all steps")
+    parser.add_argument("--episodes", type=int, default=1000)
+    parser.add_argument("--onsite", action="store_true")
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
-    
     if args.onsite:
-        args.episodes = max(args.episodes, 1000)
-        
+        args.episodes = max(args.episodes, 5000)
     train(args)

@@ -1,61 +1,60 @@
-def compute_reward(overseer_action, malicious_ids, price, baseline_price, blocked_agent, true_malicious_actions=None):
-    # Normalized reward between 0.0 and 1.0 using weighted shaping
-    # reward = 0.35 * correct + 0.20 * allow_normal + 0.20 * stability + 0.10 * low_fp + 0.10 * low_vol + 0.05 * bonus
-
-    correct_detect_score = 0.0
-    allow_normal_score = 0.0
-    false_positive = 0.0
+def compute_reward(overseer_action, malicious_ids, agents, price, baseline_price, blocked_agent, true_malicious_actions=None):
+    raw = 0.5
     
     is_block = blocked_agent != -1
-    is_malicious_block = is_block and (blocked_agent in malicious_ids)
-
-    # 1. Correct detection vs false positive
+    malicious_active = true_malicious_actions and sum(true_malicious_actions) > 0
+    is_malicious_block = is_block and (blocked_agent in malicious_ids) and malicious_active
+    
+    correct_detect = 0
+    false_positive = 0
+    missed_attack = 0
+    
+    # Core Logic
     if is_block:
         if is_malicious_block:
-            correct_detect_score = 1.0
+            raw += 0.45 # Correctly blocking Manipulator
+            correct_detect = 1
         else:
-            false_positive = 1.0
-            
-    # 2. Allowing normal behavior
-    # If it was an ALLOW action (no block)
-    if not is_block:
-        # If there was a malicious attack happening that we allowed, allow_normal_score is low, else 1.0
-        if true_malicious_actions and sum(true_malicious_actions) > 0:
-            allow_normal_score = 0.0 # missed attack
+            false_positive = 1
+            if blocked_agent != -1 and agents:
+                agent_name = agents[blocked_agent].__class__.__name__
+                if agent_name == "NormalTrader":
+                    raw -= 0.25 # Wrongly blocking NormalTrader
+                elif agent_name == "Arbitrage":
+                    raw -= 0.20 # Wrongly blocking Arbitrage
+                else:
+                    raw -= 0.25
+            else:
+                raw -= 0.25
+    else: # ALLOW
+        if malicious_active:
+            raw -= 0.40 # Missing Manipulator attack
+            missed_attack = 1
         else:
-            allow_normal_score = 1.0
+            raw += 0.12 # Allowing benign NormalTrader / Arbitrage
             
-    # 3. Price stability
+    # Price Stability
     price_error = abs(price - baseline_price) / baseline_price
-    price_stability_score = max(0.0, 1.0 - (price_error * 10)) # Needs to be tight
-
-    # 4. Low false positive score
-    low_fp_score = 1.0 - false_positive
-    
-    # 5. Low volatility score (simplified to map to price stability for step reward)
-    low_volatility_score = price_stability_score
-    
-    # 6. Episode bonus (computed later or 0.0 per step)
-    episode_bonus = 0.0
-    
-    reward = (
-        0.35 * correct_detect_score +
-        0.20 * allow_normal_score +
-        0.20 * price_stability_score +
-        0.10 * low_fp_score +
-        0.10 * low_volatility_score +
-        0.05 * episode_bonus
-    )
-    
-    # Clip between 0.0 and 1.0
-    reward = max(0.0, min(1.0, reward))
+    if price_error > 0.05:
+        raw -= 0.20 # Large final price deviation
+        
+    # We will simulate high volatility penalization via price_error on a step basis
+    if price_error > 0.03:
+        raw -= 0.10 # High volatility proxy
+        
+    if not malicious_active and price_error < 0.01 and not false_positive and not missed_attack:
+        raw += 0.10 # Perfect stable episode step
+        
+    reward = max(0.0, min(1.0, raw))
     
     info = {
-        "correct_detect": correct_detect_score,
+        "correct_detect": correct_detect,
         "false_positive": false_positive,
+        "missed_attack": missed_attack,
         "price_error": price_error,
         "malicious_ids": malicious_ids,
-        "is_block": is_block
+        "is_block": is_block,
+        "malicious_active": malicious_active
     }
     
     return reward, info
