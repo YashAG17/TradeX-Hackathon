@@ -35,9 +35,12 @@ class MarketEnv:
         
         self.agent_stats = [{"buys": 0, "sells": 0, "avg_size": 0.0, "blocked": 0, 
                              "burst_score": 0.0, "pump_score": 0.0, "dump_score": 0.0,
-                             "coordination": 0.0, "pnl": 0.0} for _ in range(4)]
+                             "coordination": 0.0, "pnl": 0.0, "recent_actions": []} for _ in range(4)]
         self.last_action_blocked = [False] * 4
         self.current_threat_score = 0.0
+        self.current_threat_reasons = []
+        
+        self._generate_next_intents()
         
         return self._get_obs()
 
@@ -54,32 +57,52 @@ class MarketEnv:
             agent_threat = 0.0
             reasons = []
             
-            # Hybrid Anomaly Detection Rules
-            if act == "SELL" and sz > 40.0:
-                agent_threat += 0.95
-                reasons.append("oversized liquidation")
-                reasons.append("severe price impact")
-                reasons.append("likely dump exit")
+            # Rule 1: Massive abnormal sizing (Arbitrage max is 20)
+            if act == "SELL" and sz >= 24.0:
+                agent_threat = max(agent_threat, 0.95)
+                reasons.append("abnormal liquidation size")
                 
-            elif act == "BUY" and sz > 20.0:
-                agent_threat += 0.85
-                reasons.append("massive pump burst")
+            if act == "BUY" and sz >= 24.0:
+                agent_threat = max(agent_threat, 0.95)
+                reasons.append("massive spoof/pump buy")
                 
-            elif stats["burst_score"] > 30.0:
-                agent_threat += 0.70
-                reasons.append("repeated burst buys")
-                reasons.append("price spike tracking detected")
-                
-            if stats["pump_score"] > 50.0 and act == "SELL":
-                agent_threat += 0.90
-                reasons.append("prior accumulation pattern")
+            # Rule 2: Sudden inventory flip (Normal max is 5, Arbitrage doesn't hold)
+            recent = stats.get("recent_actions", [])
+            if "BUY" in recent and act == "SELL" and sz > 22.0:
+                agent_threat = max(agent_threat, 0.85)
                 reasons.append("pump then dump sequence")
+                
+            # Rule 3: Repeated stealth accumulation
+            if act == "BUY" and stats["burst_score"] > 40.0 and sz > 5.0:
+                agent_threat = max(agent_threat, 0.75)
+                reasons.append("repeated burst accumulation")
+                
+            # Rule 4: High volume directional pressure
+            if sz > (stats["avg_size"] * 5) and stats["avg_size"] > 5.0:
+                agent_threat = max(agent_threat, 0.65)
+                reasons.append("sudden directional pressure")
                 
             if agent_threat > max_threat:
                 max_threat = agent_threat
                 threat_reasons = reasons
                 
         return min(max_threat, 1.0), threat_reasons
+
+    def _generate_next_intents(self):
+        self.next_intents = []
+        self.next_true_malicious = [0.0] * 4
+        
+        next_ts = self.timestep + 1
+        for i, agent in enumerate(self.agents):
+            action, size = agent.act(self.price, next_ts, self.stage, self.last_action_blocked[i], self.price_history)
+            
+            if agent.is_malicious and size > 0:
+                self.next_true_malicious[i] += size
+                
+            if size > 0:
+                self.next_intents.append({"agent": i, "action": action, "size": size})
+                
+        self.current_threat_score, self.current_threat_reasons = self._calculate_threat(self.next_intents, self.price)
 
     def step(self, overseer_action):
         self.timestep += 1
@@ -91,27 +114,16 @@ class MarketEnv:
             except:
                 pass
                 
-        intended_trades = []
-        true_malicious_actions = [0.0] * 4
-        
-        # Phase 1: Intent Collection
-        for i, agent in enumerate(self.agents):
-            self.last_action_blocked[i] = False
-            action, size = agent.act(self.price, self.timestep, self.stage, self.last_action_blocked[i], self.price_history)
-            
-            if agent.is_malicious and size > 0:
-                true_malicious_actions[i] += size
-                
-            if size > 0:
-                intended_trades.append({"agent": i, "action": action, "size": size})
-                
-        # Phase 2: Anomaly Detection Engine
-        threat_score, threat_reasons = self._calculate_threat(intended_trades, self.price)
-        self.current_threat_score = threat_score
+        intended_trades = self.next_intents
+        true_malicious_actions = self.next_true_malicious
+        threat_score = self.current_threat_score
+        threat_reasons = self.current_threat_reasons
         
         # Phase 3: Intervention Execution
         executed_trades = []
         block_reason = "\n- ".join(threat_reasons) if threat_reasons else "abnormal pattern"
+        
+        self.last_action_blocked = [False] * 4
         
         for t in intended_trades:
             if t["agent"] == blocked_agent:
@@ -142,11 +154,17 @@ class MarketEnv:
         for t in executed_trades:
             idx = t["agent"]
             sz = t["size"]
+            act = t["action"]
             total_trades = self.agent_stats[idx]["buys"] + self.agent_stats[idx]["sells"]
             
             self.agent_stats[idx]["avg_size"] = (self.agent_stats[idx]["avg_size"] * total_trades + sz) / (total_trades + 1)
             
-            if t["action"] == "BUY":
+            recent = self.agent_stats[idx].setdefault("recent_actions", [])
+            recent.append(act)
+            if len(recent) > 3:
+                recent.pop(0)
+            
+            if act == "BUY":
                 self.agent_stats[idx]["buys"] += 1
                 self.agent_stats[idx]["pump_score"] += sz
                 self.agent_stats[idx]["pnl"] -= sz * self.price
@@ -181,6 +199,10 @@ class MarketEnv:
         info["block_reason"] = block_reason
         info["threat_score"] = threat_score
         info["threat_reasons"] = threat_reasons
+        
+        # Advance state to next step for correct observation alignment
+        if not done:
+            self._generate_next_intents()
         
         return self._get_obs(), reward, done, info
 

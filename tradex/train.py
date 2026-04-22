@@ -72,11 +72,52 @@ def pretrain_supervised(policy, env, optimizer, device):
             
     print("Pretraining complete.")
 
+def validate_detector(env):
+    print("\nValidating Rule-Based Threat Detector Metrics...")
+    tp = 0
+    fp = 0
+    fn = 0
+    tn = 0
+    
+    for ep in range(150):
+        o = env.reset(stage=random.randint(1, 5), seed=ep)
+        d = False
+        while not d:
+            o, _, d, info = env.step("ALLOW")
+            threat = info["threat_score"]
+            is_attack = info["is_attack_active"]
+            
+            if is_attack and threat > 0.6:
+                tp += 1
+            elif is_attack and threat <= 0.6:
+                fn += 1
+            elif not is_attack and threat > 0.6:
+                fp += 1
+            else:
+                tn += 1
+                
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    
+    print(f"Detector TPR (Recall): {recall*100:.1f}%")
+    print(f"Detector FPR: {(fp / (fp + tn) if (fp + tn) > 0 else 0.0)*100:.1f}%")
+    print(f"Detector Precision: {precision*100:.1f}%")
+    
+    return precision, recall
+
 def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() and getattr(args, 'onsite', False) else "cpu")
     print(f"Training on device: {device}")
     
     env = MarketEnv()
+    
+    # HARD GATE: Detector must prove its integrity before PPO
+    det_prec, det_rec = validate_detector(env)
+    if det_prec < 0.60 or det_rec < 0.70:
+        print("\n[ABORT] Detector accuracy is too low! PPO will learn garbage.")
+        print("Please tune `_calculate_threat` in `env.py` to meet Rec > 70% and Prec > 60%.")
+        return
+        
     policy = Overseer().to(device)
     
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)
@@ -134,17 +175,6 @@ def train(args):
             
             with torch.no_grad():
                 probs, val = policy(x_tensor)
-                
-                # Mask ALLOW if threat is absolute critical > 0.90
-                if threat > 0.90:
-                    probs[0, 0] = 0.0
-                    probs = probs / probs.sum()
-                    
-                # 30% forced exploration into Intervene branch for first 300 episodes
-                if episode < 300 and random.random() < 0.30:
-                    probs[0, 0] *= 0.1
-                    probs = probs / probs.sum()
-                    
                 dist = torch.distributions.Categorical(probs)
                 action_tensor = dist.sample()
                 action_idx = action_tensor.item()
@@ -153,21 +183,27 @@ def train(args):
                 
             action_str = action_map[action_idx]
             
-            # Record who attacked and who was blocked for strict logging
-            malicious_agent_type = "Manipulator" if obs.get("malicious_active", False) else "None"
+            # Unit Test Check:
+            if threat >= 0.95 and action_str == "ALLOW":
+                print(f"[FATAL BUG] Threat is {getattr(policy, 'last_threat', 0):.2f} but ALLOW was selected! Logits: {policy.last_logits}")
             
             obs, reward, done, info = env.step(action_str)
             
+            if action_str != "ALLOW":
+                target_agent = info['agent_types'].get(action_idx-1, 'Unknown')
+                action_str_mapped = f"BLOCK_{target_agent}"
+            else:
+                action_str_mapped = "ALLOW"
+                
             ep_false_positives += info["false_positive"]
             ep_correct_blocks += info["correct_detect"]
             ep_missed_attacks += info["missed_attack"]
             ep_total_reward += reward
             
-            if action_str == "ALLOW":
+            if action_str_mapped == "ALLOW":
                 action_counts["ALLOW"] += 1
             else:
-                target_agent = info['agent_types'].get(action_idx-1, 'Unknown')
-                action_counts[f"BLOCK_{target_agent}"] = action_counts.get(f"BLOCK_{target_agent}", 0) + 1
+                action_counts[action_str_mapped] = action_counts.get(action_str_mapped, 0) + 1
             
             obs_buffer.append(obs_vec)
             action_buffer.append(action_idx)
@@ -175,27 +211,37 @@ def train(args):
             val_buffer.append(val.item())
             reward_buffer.append(reward)
             
-            if verbose_step and (threat > 0.8 or action_str != "ALLOW"):
+            if verbose_step and (info["is_attack_active"] or action_str != "ALLOW"):
                 print("-" * 50)
-                print(f"Step {env.timestep} | Threat Score: {threat:.2f}")
-                print(f"Targeting logic:")
-                print(f"  Chosen action: {action_str}")
-                print(f"  Confidence: {confidence:.0f}%")
+                print(f"Step {env.timestep}")
+                
+                # Find Manipulator action in intended trades
+                manip_trade = next((t for t in info["intended_trades"] if env.agents[t["agent"]].is_malicious), None)
+                if manip_trade:
+                    print(f"Manipulator Action: {manip_trade['action']} {manip_trade['size']:.1f}")
+                else:
+                    print(f"Manipulator Action: HOLD 0.0")
+                    
+                print(f"Threat Score: {threat:.2f}")
+                print(f"Reason: {info['block_reason'] if info['block_reason'] else 'None'}")
+                print(f"Ground Truth Attacker: {info['attacker_role']}")
+                print(f"Raw Logits [ALLOW, INTERVENE]: {policy.last_logits}")
+                print(f"Chosen action: {action_str_mapped}")
                 
                 if info["correct_detect"] > 0:
-                    print("  Result: [TRUE POSITIVE] +3.0 Reward")
+                    print("Outcome: [TRUE POSITIVE] +3.0 Reward")
+                elif info.get("wrong_target", 0) > 0:
+                    print("Outcome: [WRONG TARGET] -1.5 Penalty")
                 elif info["false_positive"] > 0:
-                    print("  Result: [FALSE POSITIVE] -0.7 Penalty")
+                    print("Outcome: [FALSE POSITIVE] -0.7 Penalty")
                 elif info["missed_attack"] > 0:
-                    print("  Result: [FALSE NEGATIVE] -3.0 Penalty")
+                    print("Outcome: [FALSE NEGATIVE] -3.0 Penalty")
                 else:
-                    print("  Result: [TRUE NEGATIVE] +0.05 Reward")
-                    
-                print(f"  Reasoning: {info['block_reason'] if action_str != 'ALLOW' else 'Allowed flow'}")
+                    print("Outcome: [TRUE NEGATIVE] +0.05 Reward")
 
             step_logs.append({
                 "timestep": env.timestep,
-                "action": action_str,
+                "action": action_str_mapped,
                 "reward": float(reward)
             })
             
@@ -281,8 +327,9 @@ def train(args):
             p_loss = policy_loss_sum / (ppo_epochs * len(loader))
             v_loss = value_loss_sum / (ppo_epochs * len(loader))
             
-            # Save best model by: 3*Recall + 2*Precision + Reward
-            val_metric = (3 * recall) + (2 * precision) + avg_rew
+            # Save best model by: score = reward + 4*F1 + 2*Recall
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            val_metric = avg_rew + (4.0 * f1) + (2.0 * recall)
             
             log_str = f"\n==================================================\n"
             log_str += f"Episode {episode+1} | Stage {stage} | Seed {seed}\n"
@@ -293,7 +340,7 @@ def train(args):
             log_str += f"Policy Loss: {p_loss:.3f}\n"
             log_str += f"Value Loss: {v_loss:.3f}\n"
             log_str += f"Entropy: {target_entropy:.4f}\n"
-            log_str += f"Validation Score (3*Rec + 2*Prec + Rew): {val_metric:.1f}\n\n"
+            log_str += f"Validation Score (Rew + 4*F1 + 2*Rec): {val_metric:.1f}\n\n"
             
             log_str += f"Intervention Stats:\n"
             log_str += f"True Positives (Correct Blocks): {tp}\n"
@@ -311,7 +358,7 @@ def train(args):
             
             print(log_str)
             
-            if val_metric > best_reward and recall > 0 and (100.0 - allow_pct) >= 5.0:
+            if val_metric > best_reward and precision > 0 and recall > 0:
                 best_reward = val_metric
                 torch.save(policy.state_dict(), "models/best_model.pth")
                 

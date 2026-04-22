@@ -33,13 +33,21 @@ class Overseer(nn.Module):
         logits_target = self.actor_target(h)
         value = self.critic(h)
         
-        threat_score = x[:, 53]
+        threat_score = x[:, 7]
         
-        # Add strong prior favoring intervention when threat is critical
-        prior_boost = (threat_score > 0.85).float() * 10.0
-        logits_intervene[:, 1] += prior_boost
+        # Soft bias instead of hard masks
+        # High threat suppresses ALLOW
+        allow_bias = threat_score.unsqueeze(1) * -15.0
         
-        prob_intervene = torch.softmax(logits_intervene, dim=-1)
+        # Low threat mildly suppresses INTERVENE
+        intervene_bias = (1.0 - threat_score).unsqueeze(1) * -3.0
+        
+        logits_allow = logits_intervene[:, 0:1] + allow_bias
+        logits_block = logits_intervene[:, 1:2] + intervene_bias
+        
+        logits_intervene_mod = torch.cat([logits_allow, logits_block], dim=-1)
+        
+        prob_intervene = torch.softmax(logits_intervene_mod, dim=-1)
         prob_target = torch.softmax(logits_target, dim=-1)
         
         p_allow = prob_intervene[:, 0:1]
@@ -50,6 +58,11 @@ class Overseer(nn.Module):
         probs = probs + 1e-8
         probs = probs / probs.sum(dim=-1, keepdim=True)
         
+        # Print raw logits for debugging if batch size is 1
+        if x.shape[0] == 1:
+            self.last_logits = logits_intervene_mod[0].detach().cpu().numpy()
+            self.last_threat = threat_score[0].item()
+            
         return probs, value
         
     def select_action(self, obs_vec, deterministic=False):
