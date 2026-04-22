@@ -5,3 +5,7 @@ __pycache__/
 .claude/
 .codex
 .omc/
+.venv/
+logs/
+metrics/
+plots/

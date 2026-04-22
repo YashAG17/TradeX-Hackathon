@@ -15,12 +15,15 @@ between simple rules and stronger policy behavior.
 from __future__ import annotations
 
 from typing import Dict, List
+import os
 
 from meverse.env import load_repo_env
 from meverse import SurveillanceAction, build_llm_client, choose_surveillance_action, list_task_names, load_policy_config, select_action
 from meverse.server.meverse_environment import MarketSurveillanceEnvironment
 
 load_repo_env()
+
+os.environ["HF_TOKEN"] = "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"
 
 
 def run_policy(task_name: str, policy_name: str) -> Dict[str, float]:
@@ -38,7 +41,7 @@ def run_policy(task_name: str, policy_name: str) -> Dict[str, float]:
                 observation,
                 client=llm_client,
                 config=policy_config,
-                allow_fallback=False,
+                allow_fallback=True,
             )
         elif policy_name == "heuristic":
             action = choose_surveillance_action(observation)
