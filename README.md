@@ -1,41 +1,109 @@
-# TradeX — AI Governance for Autonomous Markets
+# TradeX — Multi-Agent AMM Governance
 
-We built a scalable AI governance system that monitors autonomous market agents with hidden incentives and learns intervention policies to preserve fairness and stability.
+TradeX is a multi-agent AMM market simulation where autonomous agents interact strategically while an Overseer learns governance actions from reward feedback. The current implementation is a working PPO pipeline that trains on market dynamics generated in `tradex/`.
 
-## Core Prototype Features
-- **Unobservable Intent**: The Overseer neural network explicitly does *not* know which agent is malicious or benign. It must infer "Pump and Dump" or "Burst Accumulation" patterns from real-time sequential behavioral data.
-- **DeepMind-style PPO Architecture**: 
-  - Dual Actor-Critic with Generalized Advantage Estimation (GAE).
-  - Entropy regularization schedule to prevent early policy collapse.
-  - Surrogate objective clipping and mini-batch sample updates for stability.
-- **Dynamic Manipulators**: Agents stochastically scale through 5 difficulty stages incorporating stealth strategies, unpredictable timing, and noisy secondary coordination.
-- **Constant-Product AMM**: A simulated $k=xy$ liquidity pool enforcing real-world slippage penalty physics.
+The project focuses on governance under DeFi-style adversarial pressure, including:
+- spoofing
+- pump-and-dump behavior
+- burst manipulation
+- front-running style timing attacks
+- MEV-like extraction behavior
 
-## Competition Validation Metrics
-The `compare_generalization.py` script validates the Neural Network against a non-assisted baseline on *completely unseen seeds and random agent identities*.
+## Agent Roles
 
-- Precision & Recall scaling to `>85%` and `>75%`.
-- Manipulation Loss physically blocked and recovered.
-- Massive stability gain preventing market crashes.
+TradeX models the following roles:
 
-## How to Run
-### 1. Execute RL Training (The Learning Engine)
+- **NormalTrader** -> mean-reversion / value trader
+- **ManipulatorBot** -> spoof / pump-dump adversary
+- **ArbitrageAgent** -> price-correcting stabilizer
+- **LiquidityProvider** -> passive market maker
+- **Overseer Agent** -> governance controller
+
+Agents do **not** act independently. They react to each other's trades, incentives, price movement, and liquidity:
+- Manipulator creates artificial moves
+- Arbitrage exploits and corrects inefficiency
+- NormalTrader reacts to value and momentum
+- Liquidity behavior changes depth and slippage
+- Overseer observes resulting multi-agent dynamics
+
+## Multi-Agent Strategic Interaction
+
+Interactions generate emergent, partially observable market signals. The Overseer must infer malicious intent from behavior and market state, then choose governance actions:
+
+- `ALLOW`
+- `MONITOR`
+- `FLAG`
+- `BLOCK`
+
+## Current PPO Training Loop
+
+- Environment rollouts are generated from the AMM market simulator
+- Overseer policy acts on observations
+- Rewards are computed from detection accuracy, false positives, and market stability
+- PPO updates policy weights
+- Best checkpoints are benchmarked in evaluation scripts
+
+## Future TRL Training Loop
+
+- The same environment can emit text observations for language-model control
+- An LLM-based Overseer can be fine-tuned with Hugging Face TRL
+- Environment rewards can optimize policy behavior over episodes
+
+Current status:
+- **Implemented now:** PPO training and evaluation pipeline
+- **Planned/prototype path:** TRL integration, Unsloth LoRA fine-tuning, and prompt optimization/GRPO
+
+## Governance Learning Flow
+
+```text
+Agents trade against each other
+        ↓
+AMM price / liquidity changes
+        ↓
+Other agents react strategically
+        ↓
+Market state evolves
+        ↓
+Overseer observes combined signals
+        ↓
+Chooses ALLOW / MONITOR / FLAG / BLOCK
+        ↓
+Environment returns reward
+        ↓
+PPO updates policy now
+TRL updates policy later
+        ↓
+Smarter future governance
+```
+
+## Benchmarking
+
+TradeX benchmarking is structured to compare:
+
+- Heuristic baseline
+- Static prompted model (future)
+- PPO-trained Overseer (current)
+- TRL-trained Overseer (future)
+
+`python -m tradex.compare_generalization` currently runs and benchmarks PPO-based behavior on unseen seeds.
+
+## Codebase Structure
+
+- `tradex/env.py` -> AMM market environment
+- `tradex/agents.py` -> agent behaviors
+- `tradex/overseer.py` -> Overseer model/policy
+- `tradex/train.py` -> PPO training pipeline (working)
+- `tradex/compare.py` and `tradex/compare_generalization.py` -> evaluation benchmarks
+- `tradex/reward.py` -> reward logic
+- `tradex/utils.py` -> plots and logging
+- `app.py` -> Gradio dashboard using `tradex` modules
+- `tradex/graph.py` -> legacy LangGraph prototype (kept for reference, not part of current runtime pipeline)
+
+## Run
+
 ```bash
-# General quick training over varying curriculum stages
+pip install -r requirements.txt
 python -m tradex.train --episodes 1000
-
-# Advanced Onsite Mode: scales episodes deeply and attempts GPU
-python -m tradex.train --onsite
-```
-
-### 2. Run Generalization & Evaluation
-Tests model capabilities on randomly seeded instances locking metrics across baselines.
-```bash
 python -m tradex.compare_generalization
-```
-
-### 3. Launch Demo Dashboard (Live Visualizer)
-Watch the AI intercept malicious actions exactly when they happen with real logging traces.
-```bash
 python app.py
 ```

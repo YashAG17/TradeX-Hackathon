@@ -2,8 +2,10 @@ import gradio as gr
 import torch
 import numpy as np
 import os
+import plotly.graph_objects as go
 from tradex.env import MarketEnv
 from tradex.overseer import Overseer, encode_observation, action_map
+from tradex.compare import run_evaluation
 
 policy = Overseer()
 if os.path.exists("models/best_model.pth"):
@@ -122,11 +124,112 @@ def load_plot(plot_name):
         return path
     return None
 
+def run_compare(num_episodes):
+    num_episodes = int(num_episodes)
+    no_overseer = run_evaluation(num_episodes=num_episodes, use_overseer=False)
+    with_overseer_det = run_evaluation(num_episodes=num_episodes, use_overseer=True, deterministic=True)
+    with_overseer_stoch = run_evaluation(num_episodes=num_episodes, use_overseer=True, deterministic=False)
+    with_overseer_rule = run_evaluation(num_episodes=num_episodes, use_overseer=True, pure_rule_based=True)
+
+    policies = ["Heuristic Baseline", "PPO Overseer (Det)", "PPO Overseer (Stoch)", "Rule Hybrid"]
+    metrics = {
+        "Avg Reward": [
+            no_overseer["avg_reward"],
+            with_overseer_det["avg_reward"],
+            with_overseer_stoch["avg_reward"],
+            with_overseer_rule["avg_reward"]
+        ],
+        "Precision": [
+            no_overseer["precision"],
+            with_overseer_det["precision"],
+            with_overseer_stoch["precision"],
+            with_overseer_rule["precision"]
+        ],
+        "Recall": [
+            no_overseer["recall"],
+            with_overseer_det["recall"],
+            with_overseer_stoch["recall"],
+            with_overseer_rule["recall"]
+        ],
+        "F1": [
+            no_overseer["f1_score"],
+            with_overseer_det["f1_score"],
+            with_overseer_stoch["f1_score"],
+            with_overseer_rule["f1_score"]
+        ],
+    }
+
+    fig = go.Figure()
+    for metric_name, values in metrics.items():
+        fig.add_trace(
+            go.Bar(
+                x=policies,
+                y=values,
+                name=metric_name
+            )
+        )
+
+    fig.update_layout(
+        barmode="group",
+        title="Baseline vs Learned Policy Benchmark",
+        xaxis_title="Policy",
+        yaxis_title="Score / Percentage",
+        legend_title="Metrics",
+        template="plotly_dark"
+    )
+
+    table_data = [
+        [
+            "Heuristic Baseline",
+            round(no_overseer["avg_reward"], 2),
+            round(no_overseer["avg_final_price_error"], 2),
+            round(no_overseer["precision"], 2),
+            round(no_overseer["recall"], 2),
+            round(no_overseer["f1_score"], 2),
+            round(no_overseer["intervention_rate"], 2),
+        ],
+        [
+            "PPO Overseer (Det)",
+            round(with_overseer_det["avg_reward"], 2),
+            round(with_overseer_det["avg_final_price_error"], 2),
+            round(with_overseer_det["precision"], 2),
+            round(with_overseer_det["recall"], 2),
+            round(with_overseer_det["f1_score"], 2),
+            round(with_overseer_det["intervention_rate"], 2),
+        ],
+        [
+            "PPO Overseer (Stoch)",
+            round(with_overseer_stoch["avg_reward"], 2),
+            round(with_overseer_stoch["avg_final_price_error"], 2),
+            round(with_overseer_stoch["precision"], 2),
+            round(with_overseer_stoch["recall"], 2),
+            round(with_overseer_stoch["f1_score"], 2),
+            round(with_overseer_stoch["intervention_rate"], 2),
+        ],
+        [
+            "Rule Hybrid",
+            round(with_overseer_rule["avg_reward"], 2),
+            round(with_overseer_rule["avg_final_price_error"], 2),
+            round(with_overseer_rule["precision"], 2),
+            round(with_overseer_rule["recall"], 2),
+            round(with_overseer_rule["f1_score"], 2),
+            round(with_overseer_rule["intervention_rate"], 2),
+        ]
+    ]
+
+    summary = (
+        f"Completed benchmark on {num_episodes} episodes.\n"
+        f"Best average reward: {max(table_data, key=lambda x: x[1])[0]}.\n"
+        f"Best F1 score: {max(table_data, key=lambda x: x[5])[0]}."
+    )
+
+    return fig, table_data, summary
+
 with gr.Blocks(theme=gr.themes.Monochrome(primary_hue="slate", neutral_hue="slate")) as demo:
-    gr.Markdown("# 📉 TradeX — DeepMind Style AI Governance Control Room")
-    gr.Markdown("A hybrid rule-based anomaly detector passes high-fidelity threat scores context into the Deep PPO architecture to govern autonomous agents.")
+    gr.Markdown("# TradeX — Multi-Agent AMM Governance")
+    gr.Markdown("Live governance simulation with PPO-trained oversight, strategic agent interaction, and benchmark-oriented evaluation.")
     
-    with gr.Tab("Live Market Oversight Replay"):
+    with gr.Tab("Live Market Replay"):
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### Dashboard Controls")
@@ -136,7 +239,7 @@ with gr.Blocks(theme=gr.themes.Monochrome(primary_hue="slate", neutral_hue="slat
                 use_ai = gr.Checkbox(value=True, label="Enable Deep RL Overseer")
                 run_btn = gr.Button("Execute Market Simulation", variant="primary")
                 
-                gr.Markdown("### Episode Diagnostics")
+                gr.Markdown("### Governance Decisions")
                 out_threat = gr.Markdown()
                 out_int = gr.Markdown()
                 out_cb = gr.Markdown()
@@ -146,7 +249,7 @@ with gr.Blocks(theme=gr.themes.Monochrome(primary_hue="slate", neutral_hue="slat
                 out_stab = gr.Markdown()
             
             with gr.Column(scale=2):
-                ep_logs = gr.Textbox(label="Autonomous Agent & Model Reasoning", lines=28, max_lines=40)
+                ep_logs = gr.Textbox(label="Intervention Metrics", lines=28, max_lines=40)
                 
         run_btn.click(
             run_single_episode, 
@@ -154,7 +257,7 @@ with gr.Blocks(theme=gr.themes.Monochrome(primary_hue="slate", neutral_hue="slat
             outputs=[out_threat, out_int, out_cb, out_ma, out_prec, out_rec, out_stab, ep_logs]
         )
         
-    with gr.Tab("Reinforcement Learning PPO Data"):
+    with gr.Tab("Reward Optimization Curves"):
         
         with gr.Row():
             p1 = gr.Image(value=load_plot("reward_vs_episode.png"), label="Reward Moving Average")
@@ -163,6 +266,34 @@ with gr.Blocks(theme=gr.themes.Monochrome(primary_hue="slate", neutral_hue="slat
         with gr.Row():
             p3 = gr.Image(value=load_plot("detection_capability.png"), label="Correct Blocks vs False Positives")
             p4 = gr.Image(value=load_plot("final_price_error_vs_episode.png"), label="Action Distribution Target")
+
+    with gr.Tab("Baseline vs Learned Policy"):
+        gr.Markdown("## PPO vs Baseline Benchmark")
+        gr.Markdown("Run a direct benchmark to compare the baseline policy against the learned PPO overseer.")
+
+        benchmark_episodes = gr.Slider(
+            minimum=10,
+            maximum=100,
+            value=50,
+            step=10,
+            label="Evaluation Episodes"
+        )
+        compare_btn = gr.Button("Run Benchmark", variant="primary")
+        benchmark_plot = gr.Plot(label="Baseline vs Learned Policy")
+        benchmark_table = gr.Dataframe(
+            headers=["Policy", "Avg Reward", "Price Error", "Precision", "Recall", "F1", "Intervention Rate"],
+            datatype=["str", "number", "number", "number", "number", "number", "number"],
+            row_count=4,
+            col_count=7,
+            label="Benchmark Metrics"
+        )
+        compare_out = gr.Textbox(lines=8, label="Benchmark Summary")
+
+        compare_btn.click(
+            fn=run_compare,
+            inputs=benchmark_episodes,
+            outputs=[benchmark_plot, benchmark_table, compare_out]
+        )
 
 if __name__ == "__main__":
     demo.launch()

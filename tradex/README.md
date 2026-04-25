@@ -1,51 +1,68 @@
-# TradeX — Multi-Agent Market Simulation with Scalable Oversight
+# TradeX (`tradex/`) — Working PPO Governance Pipeline
 
-## What it does
+## Overview
 
-TradeX is a sophisticated multi-agent reinforcement learning environment simulating a financial market where four autonomous trading agents interact within a shared economy. A special Overseer Agent, powered by LangGraph, monitors agent behavior through observable signals only, inferring malicious intent without accessing hidden strategies. The system trains an RL policy to intervene by blocking suspicious agents, promoting market stability and fairness. This project demonstrates emergent behaviors from agent interactions, theory-of-mind inference, and scalable oversight in multi-agent systems.
+`tradex/` is the primary working pipeline in this repository. It implements a multi-agent AMM market simulation where agents react strategically to one another, and an Overseer policy is trained with PPO to improve governance outcomes.
 
-## Architecture
+The environment captures adversarial DeFi-style behavior including spoofing, pump-and-dump patterns, burst manipulation, front-running style timing, and MEV-like extraction pressure.
 
-The simulation consists of:
-- **4 Trading Agents**: Each with unique, hidden strategies and internal states
-  - NormalTrader (agent 0): Mean-reversion trader
-  - ManipulatorBot (agent 1): Pump-and-dump schemer (malicious)
-  - ArbitrageAgent (agent 2): Stabilizing arbitrageur
-  - LiquidityProvider (agent 3): Passive market maker
-- **Overseer Agent**: LangGraph-based system with observe → analyze → decide → intervene nodes
-- **Market Environment**: Gym-compatible with price dynamics, trade execution, and reward computation
-- **RL Training Pipeline**: Policy gradient training to learn optimal intervention strategies
+## Agent Roles
 
-Agents interact through price impacts, creating emergent market dynamics that the Overseer must navigate.
+- **NormalTrader** -> mean-reversion / value trader
+- **ManipulatorBot** -> spoof / pump-dump adversary
+- **ArbitrageAgent** -> price-correcting stabilizer
+- **LiquidityProvider** -> passive market maker
+- **Overseer Agent** -> governance controller
 
-## How to run
+Agents are coupled through shared AMM state. They do not act independently; each trade changes price/liquidity and affects downstream behavior of all participants.
 
-```bash
-pip install -r requirements.txt
-python tradex/train.py        # Trains the overseer policy (200 episodes)
-python tradex/compare.py      # Runs comparison between with/without overseer
-```
+## Multi-Agent Strategic Interaction
 
-Training takes ~5-10 minutes on a standard CPU. The trained policy is saved as `policy.pth`.
+Strategic interactions create emergent, partially observable signals. The Overseer must infer intent and choose a governance response:
+
+- `ALLOW`
+- `MONITOR`
+- `FLAG`
+- `BLOCK`
+
+In the current PPO implementation, the concrete action map focuses on allow/block-target decisions while preserving compatibility with broader governance messaging.
+
+## Current PPO Training Loop
+
+- Environment rollouts generated
+- Overseer policy acts on observations
+- Rewards based on detection accuracy, false positives, and market stability
+- PPO updates weights
+- Best checkpoints benchmarked
+
+## Future TRL Training Loop
+
+- Same environment can emit text observations
+- LLM Overseer can be fine-tuned with TRL
+- Rewards from environment can optimize policy
+
+Current state is technically honest:
+- PPO training and evaluation are implemented and working today
+- TRL/Unsloth LoRA/GRPO represent the forward integration path, not a completed replacement
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `env.py` | MarketEnv class — Gym-compatible environment |
-| `agents.py` | Four trading agent classes with hidden strategies |
-| `overseer.py` | LangGraph Overseer Agent implementation |
-| `graph.py` | LangGraph orchestration of one simulation timestep |
-| `reward.py` | Reward function for RL training |
-| `train.py` | Policy gradient training loop |
-| `compare.py` | Before/after comparison script |
-| `utils.py` | Logging and plotting utilities |
-| `README.md` | This documentation |
+| `env.py` | AMM market environment |
+| `agents.py` | Agent behavior models |
+| `overseer.py` | Overseer neural policy and observation encoding |
+| `train.py` | PPO training pipeline |
+| `compare.py` | Benchmark runner |
+| `compare_generalization.py` | Unseen-seed generalization benchmark wrapper |
+| `reward.py` | Reward shaping logic |
+| `utils.py` | Plotting and episode logs |
+| `graph.py` | Legacy prototype module (not used by the current PPO runtime path) |
 
-## Theme alignment
+## Run
 
-This project directly addresses the **Multi-Agent Interactions + Scalable Oversight (Fleet AI)** theme:
-
-- **Multi-Agent Interactions**: Agents' trades create complex price dynamics and emergent behaviors (e.g., ManipulatorBot's pump triggering ArbitrageAgent's stabilization attempts)
-- **Scalable Oversight**: The Overseer uses LangGraph to process multi-modal signals (price trends, trade volumes, correlations) and makes theory-of-mind inferences about agent intent, scaling from 4 to potentially hundreds of agents
-- **Fleet AI**: Demonstrates hierarchical oversight where a central AI monitors and intervenes in a fleet of autonomous agents, ensuring system-level objectives (market stability) over individual agent goals
+```bash
+pip install -r requirements.txt
+python -m tradex.train --episodes 1000
+python -m tradex.compare_generalization
+```
