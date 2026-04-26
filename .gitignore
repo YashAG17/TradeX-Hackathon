@@ -9,3 +9,7 @@ __pycache__/
 logs/
 metrics/
 plots/
+*.pth
+uv.lock
+.gradio/
+telemetry/
