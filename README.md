@@ -101,6 +101,8 @@ app.py   -> Gradio UI for TradeX stack
 dashboard.py -> Gradio UI for MEVerse stack
 inference.py -> LLM policy runner against MEVerse
 openenv.yaml -> OpenEnv manifest and task registry
+backend/  -> FastAPI dashboard API (wraps app.py + dashboard.py logic)
+frontend/ -> React + Vite SPA replacement for both Gradio dashboards
 ```
 
 For full technical mapping, see the **[Architecture Deep Dive (`docs/architecture.md`)](docs/architecture.md)**.
@@ -132,6 +134,24 @@ python server/app.py
 # Optional UIs
 python app.py
 python dashboard.py
+```
+
+## Run the React dashboard
+
+The Gradio apps still work; the React SPA in `frontend/` is an alternative UI
+backed by a FastAPI service in `backend/` that re-uses the existing `meverse/`
+and `tradex/` Python packages. See [`frontend/README.md`](frontend/README.md)
+for details.
+
+```bash
+# Terminal 1 — FastAPI backend
+pip install -r requirements.txt -r backend/requirements.txt
+uvicorn backend.app:app --reload --port 8000
+
+# Terminal 2 — React frontend
+cd frontend
+npm install
+npm run dev          # http://localhost:5173, proxies /api to :8000
 ```
 
 ## Links

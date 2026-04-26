@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+.env
+*.local
+.vite
+
+# tsc artifacts (we use Vite to build; tsc is type-check only)
+*.tsbuildinfo
+src/**/*.js
+src/**/*.d.ts
+vite.config.js
+vite.config.d.ts
