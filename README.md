@@ -10,56 +10,6 @@ python_version: "3.11"
 pinned: false
 ---
 
-# TradeX — Multi-Agent AMM Governance Knowledge Base
-
-TradeX is a market-surveillance and anomaly-detection system for DeFi AMMs, built as an OpenEnv-compatible reinforcement learning gym where agents learn directly through interaction. AMM markets routinely face front-running, sandwich attacks, coordinated manipulation, and MEV-style extraction; while major infrastructure players such as Uniswap, Flashbots, and other DeFi teams use private order flow, private relays, auction systems, and protocol-level mitigations, these defenses are often protocol-specific and less adaptive to emerging attack patterns. TradeX addresses that gap by enabling dynamic detection of unseen bots, novel exploit strategies, and manipulative agents, while providing a practical foundation for research, benchmarking, and deployment-oriented market integrity tooling.
-
-It combines:
-
-- a working PPO governance pipeline in `tradex/`
-- an OpenEnv-compatible surveillance environment in `meverse/`
-- reproducible evaluation and reporting workflows for benchmark analysis
-
-This README is the main "important database" for how the system works, how to run it, and how to navigate the project.
-
-## What TradeX Simulates
-
-TradeX models governance under adversarial DeFi pressure:
-
-- spoofing
-- pump-and-dump behavior
-- burst manipulation
-- front-running style timing attacks
-- MEV-like extraction behavior
-
-## Agent Ecosystem
-
-TradeX includes strategically coupled agents:
-
-- **NormalTrader** -> mean-reversion / value trader
-- **ManipulatorBot** -> spoof / pump-dump adversary
-- **ArbitrageAgent** -> price-correcting stabilizer
-- **LiquidityProvider** -> passive market maker
-- **Overseer** -> governance controller (policy under training/evaluation)
-
-Agents are not independent. One trade shifts AMM price/liquidity and changes incentives for every other participant.
-
-## Governance Actions
-
-Overseer response space:
-=======
----
-title: TradeX
-emoji: 📈
-colorFrom: gray
-colorTo: blue
-sdk: gradio
-sdk_version: 4.44.1
-app_file: app.py
-python_version: "3.11"
-pinned: false
----
-
 # TradeX + MEVerse
 
 TradeX started from a simple question: can we train an agent to intervene in AMM markets before manipulation cascades into full instability?
@@ -98,33 +48,13 @@ In `meverse/`, each step provides a structured observation with market micro-sig
 ### What the agent does
 
 In the OpenEnv benchmark (`meverse/server/meverse_environment.py`), the action space is:
->>>>>>> origin/main
 
 - `ALLOW`
 - `MONITOR`
 - `FLAG`
 - `BLOCK`
 
-<<<<<<< HEAD
-In PPO training, these are mapped to concrete allow/block-target decisions while keeping the broader action interface.
-
-## Learning Loop
-
-![TradeX governance learning flow](docs/assets/tradex-governance-mindmap.svg)
-
-```text
-Reset episode -> generate observations -> policy acts -> environment updates AMM state
--> reward from detection + market health -> trajectory logging -> optimization -> next episode
-```
-
-## Implementation Status
-
-- **Implemented now (production path):** PPO training + evaluation (`tradex/`)
-- **Planned/extended path:** TRL/Unsloth/GRPO-style LLM governance fine-tuning
-
-## Quick Start
-=======
-Each action feeds back into future state through AMM dynamics (`meverse/amm.py`), so behavior today shifts tomorrow's distribution.
+In PPO training, these are mapped to concrete allow/block-target decisions while keeping the broader action interface. Each action feeds back into future state through AMM dynamics (`meverse/amm.py`), so behavior today shifts tomorrow's distribution.
 
 ### How reward and grading work
 
@@ -162,17 +92,22 @@ Why:
 - It supports both near-term baselines and longer-term LLM training pathways.
 - It is reproducible enough for comparison, but rich enough to exhibit strategic/adaptive behavior.
 
+## Implementation Status
+
+- **Implemented now (production path):** PPO training + evaluation (`tradex/`).
+- **Planned/extended path:** TRL/Unsloth/GRPO-style LLM governance fine-tuning.
+
 ## Architecture at a glance
 
 ```text
-tradex/  -> multi-agent AMM + PPO overseer training/eval
-meverse/ -> OpenEnv environment + grading + FastAPI serving
-app.py   -> Gradio UI for TradeX stack
-dashboard.py -> Gradio UI for MEVerse stack
-inference.py -> LLM policy runner against MEVerse
-openenv.yaml -> OpenEnv manifest and task registry
-backend/  -> FastAPI dashboard API (wraps app.py + dashboard.py logic)
-frontend/ -> React + Vite SPA replacement for both Gradio dashboards
+tradex/       -> multi-agent AMM + PPO overseer training/eval
+meverse/      -> OpenEnv environment + grading + FastAPI serving
+app.py        -> Gradio UI for TradeX stack (Live Playground + benchmarks)
+dashboard.py  -> Gradio UI for MEVerse stack
+inference.py  -> Unified TradeX runner (train + compare + combined output)
+openenv.yaml  -> OpenEnv manifest and task registry
+backend/      -> FastAPI dashboard API (wraps app.py + dashboard.py logic)
+frontend/     -> React + Vite SPA replacement for both Gradio dashboards
 ```
 
 For full technical mapping, see the **[Architecture Deep Dive (`docs/architecture.md`)](docs/architecture.md)**.
@@ -188,7 +123,6 @@ This repo currently satisfies the requested implementation constraints:
 - MCP/OpenEnv tool names avoid reserved runtime endpoints (`reset`, `step`, `state`, `close`).
 
 ## Run locally
->>>>>>> origin/main
 
 ```bash
 pip install -r requirements.txt
@@ -198,12 +132,18 @@ python -m tradex.train --episodes 1000
 
 # Evaluate generalization on unseen seeds
 python -m tradex.compare_generalization
-<<<<<<< HEAD
+
+# Run OpenEnv/FastAPI app (serves app:app as declared in openenv.yaml)
+python server/app.py
+
+# Optional UIs
+python app.py
+python dashboard.py
 ```
 
 ## Unified Pipeline (Train + Compare in One Run)
 
-`inference.py` is now a unified runner for:
+`inference.py` is a unified runner for:
 
 1. `tradex.train`
 2. `tradex.compare_all`
@@ -239,10 +179,10 @@ The practical workflow for this repository is script-first:
 
 TradeX benchmarks are designed to compare:
 
-- heuristic baseline
-- always-allow/random sanity baselines
-- PPO-trained overseer (current)
-- TRL-style overseer variants (future path)
+- heuristic baseline,
+- always-allow / random sanity baselines,
+- PPO-trained overseer (current),
+- TRL-style overseer variants (future path).
 
 Primary reference command:
 
@@ -258,7 +198,7 @@ python -m tradex.compare_generalization
 
 - **What this shows:** per-episode reward (light line) and rolling average (dark line).
 - **How to read it:** higher rolling average means the policy is improving expected governance decisions over time.
-- **Your current signal:** rolling reward is positive and generally stable with noise, which is expected in adversarial multi-agent training.
+- **Current signal:** rolling reward is positive and generally stable with noise, which is expected in adversarial multi-agent training.
 
 ### 2) Precision vs Recall Tracking (detection quality trade-off)
 
@@ -266,7 +206,7 @@ python -m tradex.compare_generalization
 
 - **What this shows:** precision (green) vs recall (orange) during training.
 - **How to read it:** high precision with low recall means conservative blocking (fewer false positives but more missed attacks).
-- **Your current signal:** precision is strong while recall is modest, suggesting the overseer is cautious and can be tuned for better attack coverage.
+- **Current signal:** precision is strong while recall is modest, suggesting the overseer is cautious and can be tuned for better attack coverage.
 
 ### 3) Detection Capability (True Positives vs False Positives)
 
@@ -274,7 +214,7 @@ python -m tradex.compare_generalization
 
 - **What this shows:** smoothed true positives (green area) against false positives (red line).
 - **How to read it:** ideal behavior is high green with low red most of the time.
-- **Your current signal:** true-positive activity dominates many windows, but red spikes indicate periodic overblocking risk.
+- **Current signal:** true-positive activity dominates many windows, but red spikes indicate periodic overblocking risk.
 
 ### 4) Final Price Error vs Episode (market stability)
 
@@ -282,7 +222,7 @@ python -m tradex.compare_generalization
 
 - **What this shows:** absolute deviation from target AMM price at episode end, plus rolling average.
 - **How to read it:** lower values mean better market stability preservation under interventions.
-- **Your current signal:** rolling error remains low overall, with occasional spikes during harder attack dynamics.
+- **Current signal:** rolling error remains low overall, with occasional spikes during harder attack dynamics.
 
 ### Practical interpretation for judges
 
@@ -303,21 +243,7 @@ python -m tradex.compare_generalization
 - `tradex/reward.py` -> reward shaping logic
 - `tradex/utils.py` -> logs and plots
 - `meverse/server/meverse_environment.py` -> OpenEnv surveillance environment
-- `inference.py` -> unified train+compare runner with combined output
-
-## Documentation Index
-
-- `docs/hf-mini-blog.md` -> blog-ready narrative and governance flow graphic
-
-=======
-
-# Run OpenEnv/FastAPI app (serves app:app as declared in openenv.yaml)
-python server/app.py
-
-# Optional UIs
-python app.py
-python dashboard.py
-```
+- `inference.py` -> unified train + compare runner with combined output
 
 ## Run the React dashboard
 
@@ -339,8 +265,7 @@ npm run dev          # http://localhost:5173, proxies /api to :8000
 
 ## Links
 
-- **HF mini blog:** [Hugging Face Mini Blog (`docs/hf-mini-blog.md`)](docs/hf-mini-blog.md)
-- **Architecture deep dive:** [Architecture Deep Dive (`docs/architecture.md`)](docs/architecture.md)
+- **HF mini blog:** [`docs/hf-mini-blog.md`](docs/hf-mini-blog.md)
+- **Architecture deep dive:** [`docs/architecture.md`](docs/architecture.md)
 
 If you publish a demo video or HF post, add it here so reviewers can jump directly from the README.
->>>>>>> origin/main
