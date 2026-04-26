@@ -4,6 +4,65 @@ TradeX is a multi-agent AMM governance environment where autonomous trading agen
 
 The current production path in this repository is a working PPO pipeline in `tradex/`. The project is also designed to transition toward Hugging Face TRL workflows for an LLM-style Overseer without misrepresenting what is already implemented.
 
+## Judge quick links (README)
+
+For fast review, jump directly to these sections in the main project guide:
+
+- [Quick Start](../README.md#quick-start)
+- [Unified Pipeline (Train + Compare in One Run)](../README.md#unified-pipeline-train--compare-in-one-run)
+- [Dashboard (Operational View)](../README.md#dashboard-operational-view)
+- [Playground (Manual Step-Through)](../README.md#playground-manual-step-through)
+- [Tasks and Difficulty](../README.md#tasks-and-difficulty)
+- [Core Evaluation Framing](../README.md#core-evaluation-framing)
+- [Repository Map](../README.md#repository-map)
+
+## What to run (judge checklist)
+
+### 1) One-command main benchmark path (`inference.py`)
+
+From repo root:
+
+```bash
+python inference.py --train-episodes 1000 --compare-episodes 100
+```
+
+Artifacts generated:
+
+- `outputs/final_combined_output.json`
+- `outputs/final_benchmark.csv`
+
+Quick smoke test:
+
+```bash
+python inference.py --train-episodes 10 --compare-episodes 10
+```
+
+### 2) PPO-only path (`tradex.train` + evaluation)
+
+```bash
+python -m tradex.train --episodes 1000
+python -m tradex.compare_generalization
+```
+
+### 3) TRL path on Google Colab (recommended: Unsloth low-memory path)
+
+In Colab terminal / notebook shell:
+
+```bash
+git clone https://github.com/YashAG17/TradeX-Hackathon.git
+cd TradeX-Hackathon
+pip install -r requirements.txt
+pip install -r requirements_trl.txt
+python -m tradex.train_trl --use_unsloth --episodes 30 --bootstrap_episodes 40
+python -m tradex.eval_trl --episodes 50
+python -m tradex.compare_all --episodes 50
+```
+
+Notes:
+
+- `--use_unsloth` is designed for Colab VRAM/disk limits.
+- Default TRL artifacts are expected under `models/trl_overseer*/final`.
+
 ## Why this matters
 
 AMM ecosystems face adversarial behavior that can look legitimate in isolation:
