@@ -1,4 +1,5 @@
 import argparse
+import inspect
 import json
 import os
 import random
@@ -85,25 +86,57 @@ def build_model_and_tokenizer(args):
     return model, tokenizer
 
 
+def build_ppo_config(args):
+    config_kwargs = {
+        "learning_rate": args.learning_rate,
+        "batch_size": 1,
+        "mini_batch_size": 1,
+        "gradient_accumulation_steps": 1,
+    }
+    if args.use_wandb:
+        config_kwargs["log_with"] = "wandb"
+
+    # TRL versions expose slightly different PPOConfig signatures.
+    supported = set(inspect.signature(PPOConfig.__init__).parameters.keys())
+    filtered = {k: v for k, v in config_kwargs.items() if k in supported}
+    missing = set(config_kwargs.keys()) - set(filtered.keys())
+    if missing:
+        print(f"[TRL] Skipping unsupported PPOConfig args for this TRL version: {sorted(missing)}")
+    return PPOConfig(**filtered)
+
+
+def build_ppo_trainer(ppo_config, model, tokenizer):
+    trainer_kwargs = {
+        "config": ppo_config,
+        "model": model,
+        "ref_model": None,
+        "tokenizer": tokenizer,
+    }
+    # TRL versions also differ on PPOTrainer init args.
+    supported = set(inspect.signature(PPOTrainer.__init__).parameters.keys())
+    filtered = {k: v for k, v in trainer_kwargs.items() if k in supported}
+    missing = set(trainer_kwargs.keys()) - set(filtered.keys())
+    if missing:
+        print(f"[TRL] Skipping unsupported PPOTrainer args for this TRL version: {sorted(missing)}")
+    return PPOTrainer(**filtered)
+
+
 def train(args):
+    if args.use_unsloth:
+        # Delegate to low-memory Unsloth path for Colab/disk-constrained setups.
+        from .train_trl_unsloth import train_unsloth
+
+        print("[TRL] --use_unsloth enabled. Switching to Unsloth training path.")
+        train_unsloth(args)
+        return
+
     set_seed(args.seed)
     os.makedirs(args.output_dir, exist_ok=True)
 
     model, tokenizer = build_model_and_tokenizer(args)
 
-    ppo_config = PPOConfig(
-        learning_rate=args.learning_rate,
-        batch_size=1,
-        mini_batch_size=1,
-        gradient_accumulation_steps=1,
-        log_with="wandb" if args.use_wandb else None,
-    )
-    ppo_trainer = PPOTrainer(
-        config=ppo_config,
-        model=model,
-        ref_model=None,
-        tokenizer=tokenizer,
-    )
+    ppo_config = build_ppo_config(args)
+    ppo_trainer = build_ppo_trainer(ppo_config, model, tokenizer)
 
     env = MarketEnv()
     history: List[Dict] = []
@@ -224,6 +257,47 @@ def parse_args():
     parser.add_argument("--lora_alpha", type=int, default=32)
     parser.add_argument("--lora_dropout", type=float, default=0.05)
     parser.add_argument("--use_wandb", action="store_true")
+    parser.add_argument(
+        "--use_unsloth",
+        action="store_true",
+        help="Use the Unsloth low-memory training path (recommended for Colab disk/VRAM limits).",
+    )
+    parser.add_argument(
+        "--bootstrap_episodes",
+        type=int,
+        default=40,
+        help="Used by Unsloth path to generate bootstrap training examples from the environment.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=1,
+        help="Used by Unsloth path.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Used by Unsloth path.",
+    )
+    parser.add_argument(
+        "--grad_accum_steps",
+        type=int,
+        default=4,
+        help="Used by Unsloth path.",
+    )
+    parser.add_argument(
+        "--max_seq_length",
+        type=int,
+        default=1024,
+        help="Used by Unsloth path.",
+    )
+    parser.add_argument(
+        "--save_steps",
+        type=int,
+        default=100,
+        help="Used by Unsloth path.",
+    )
     return parser.parse_args()
 
 
