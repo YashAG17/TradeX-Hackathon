@@ -1,77 +1,155 @@
-# From Alarm Bells to Agent Policy: Building a Market Surveillance Environment
+# TradeX on Hugging Face: PPO Today, TRL Pathway Next
 
-Companion to the **[Project README (`../README.md`)](../README.md)**
+TradeX is a market-surveillance and anomaly-detection system for DeFi AMMs, built as an OpenEnv-compatible reinforcement learning gym where agents learn directly through interaction. AMM markets routinely face front-running, sandwich attacks, coordinated manipulation, and MEV-style extraction; while major infrastructure players such as Uniswap, Flashbots, and other DeFi teams use private order flow, private relays, auction systems, and protocol-level mitigations, these defenses are often protocol-specific and less adaptive to emerging attack patterns. TradeX addresses that gap by enabling dynamic detection of unseen bots, novel exploit strategies, and manipulative agents, while providing a practical foundation for research, benchmarking, and deployment-oriented market integrity tooling.
 
-## The story in one paragraph
+The current production path in this repository is a working PPO pipeline in `tradex/`. The project is also designed to transition toward Hugging Face TRL workflows for an LLM-style Overseer without misrepresenting what is already implemented.
 
-AMM markets do not fail because one bad trade appears; they fail because suspicious behavior compounds while everyone reacts. We built TradeX + MEVerse to model that compounding effect and train agents to make intervention decisions under uncertainty. Instead of asking "is this trade malicious?", we ask "what action now keeps the next 20 steps healthier?"
+## Judge quick links (README)
 
-## 1) Problem
+For fast review, jump directly to these sections in the main project guide:
 
-We target a practical capability gap: sequential market surveillance.
+- [Quick Start](../README.md#quick-start)
+- [Unified Pipeline (Train + Compare in One Run)](../README.md#unified-pipeline-train--compare-in-one-run)
+- [Tasks and Difficulty](../README.md#tasks-and-difficulty)
+- [Core Evaluation Framing](../README.md#core-evaluation-framing)
+- [Repository Map](../README.md#repository-map)
 
-Most benchmarks stop at static detection labels. Real governance needs policies that balance:
+## What to run (judge checklist)
 
-- catching manipulation early,
-- avoiding unnecessary blocks,
-- preserving market health across time.
+### 1) One-command main benchmark path (`inference.py`)
 
-The domain here is adversarial AMM trading with burst and pattern manipulations that can resemble normal activity until context accumulates.
-
-## 2) Environment
-
-The benchmarkable environment is `meverse/`, served through OpenEnv/FastAPI.
-
-- **Agent observations:** AMM price/liquidity, trade burst/pattern indicators, slippage and frequency features, suspiciousness/manipulation scores.
-- **Action space:** `ALLOW`, `MONITOR`, `FLAG`, `BLOCK`.
-- **Reward loop:** action quality is rewarded per-step, and actions update AMM state so future observations change.
-- **Tasks:** `burst_detection`, `pattern_manipulation_detection`, `full_market_surveillance` (declared in `openenv.yaml`).
-
-Under the hood, this uses the OpenEnv `Environment` base class in `meverse/server/meverse_environment.py` and standard lifecycle methods (`reset`, `step`, `state`).
-
-## 3) Results
-
-What is trained today is the `tradex/` PPO overseer stack; what is deployment-ready today is the `meverse/` OpenEnv benchmark stack.
-
-- PPO training pipeline exists and runs from `tradex/train.py`.
-- Generalization benchmarking is available via `python -m tradex.compare_generalization`.
-- Trained checkpoints are stored in `models/`.
-- In observed runs, policy behavior shifts from permissive defaults toward targeted interventions on high-threat episodes, improving task-relevant metrics over baselines.
-
-This split is intentional: `tradex/` explores training dynamics, while `meverse/` provides a clean benchmark contract for evaluation and HF deployment.
-
-## 4) Why it matters
-
-This matters to anyone evaluating whether LLM/RL agents can do reliable governance in dynamic systems:
-
-- **Researchers:** a compact environment where action changes future risk.
-- **Builders:** a practical testbed for surveillance policies before production.
-- **Reviewers/Judges:** a setup that is ambitious but grounded in runnable artifacts and clear interfaces.
-
-If we want frontier-capable agents, we need environments where they are judged on long-horizon decisions, not one-shot labels.
-
-## Engineering quality notes
-
-Current implementation checks the table-stakes boxes:
-
-- OpenEnv base classes are used correctly.
-- Client/server separation is respected (`meverse/client.py` vs `meverse/server/`).
-- Gym-style lifecycle is implemented.
-- `openenv.yaml` is valid and task-complete.
-- Reserved endpoint/tool names are not reused for custom MCP tools.
-
-## Try it
+From repo root:
 
 ```bash
-pip install -r requirements.txt
-python -m tradex.compare_generalization
-python server/app.py
-python dashboard.py
+python inference.py --train-episodes 1000 --compare-episodes 100
 ```
 
-## Links to include when publishing
+Artifacts generated:
 
-- **Project README:** [README (`../README.md`)](../README.md)
-- **Architecture deep dive:** [Architecture Deep Dive (`architecture.md`)](architecture.md)
-- Add your Hugging Face Space URL here
-- Add your demo video URL here
+- `outputs/final_combined_output.json`
+- `outputs/final_benchmark.csv`
+
+
+### 2) PPO-only path (`tradex.train` + evaluation)
+
+```bash
+python -m tradex.train --episodes 1000
+python -m tradex.compare_generalization
+```
+
+### 3) TRL path on Google Colab (recommended: Unsloth low-memory path)
+
+In Colab terminal / notebook shell:
+
+```bash
+git clone https://github.com/YashAG17/TradeX-Hackathon.git
+cd TradeX-Hackathon
+pip install -r requirements.txt
+pip install -r requirements_trl.txt
+python -m tradex.train_trl --use_unsloth --episodes 30 --bootstrap_episodes 40
+python -m tradex.eval_trl --episodes 50
+python -m tradex.compare_all --episodes 50
+```
+
+Notes:
+
+- `--use_unsloth` is designed for Colab VRAM/disk limits.
+- Default TRL artifacts are expected under `models/trl_overseer*/final`.
+
+## Training environment note (Colab/Kaggle)
+
+During the hackathon, we attempted to run full end-to-end TRL/Unsloth training repeatedly on both Colab and Kaggle. In practice, these environments showed version instability (especially PyTorch compatibility) that affected logging/graph generation and reproducibility. Unsloth is highly performance-optimized but also sensitive to runtime/library combinations, and several participants reported similar issues in shared setups.
+
+Despite these constraints, we continued the pipeline with stable PPO training and completed the LLM fine-tuning/evaluation path using TRL on Colab with compatible configurations. The reported benchmarks and outputs therefore reflect a pragmatic, reproducible path under real hackathon infrastructure limits.
+
+## Why this matters
+
+AMM ecosystems face adversarial behavior that can look legitimate in isolation:
+
+- spoofing
+- pump and dump
+- burst manipulation
+- front-running style timing attacks
+- MEV-like extraction behavior
+
+TradeX models these pressures as a governance problem under partial observability.
+
+## Agent ecosystem
+
+TradeX uses these roles:
+
+- **NormalTrader** -> mean-reversion / value trader
+- **ManipulatorBot** -> spoof / pump-dump adversary
+- **ArbitrageAgent** -> price-correcting stabilizer
+- **LiquidityProvider** -> passive market maker
+- **Overseer Agent** -> governance controller
+
+These agents are strategically coupled. One agent's trade changes AMM price and liquidity, which in turn reshapes incentives for every other agent and the Overseer.
+
+## Multi-Agent Strategic Interaction
+
+The Overseer observes combined market signals and must infer intent, then choose:
+
+- `ALLOW`
+- `MONITOR`
+- `FLAG`
+- `BLOCK`
+
+In the current PPO stack, policy actions are implemented as allow/block-target controls, while the broader governance action space is maintained as the long-term interface.
+
+## Current PPO Training Loop
+
+- Environment rollouts generated
+- Overseer policy acts on observations
+- Rewards based on detection accuracy, false positives, and market stability
+- PPO updates weights
+- Best checkpoints benchmarked
+
+`python -m tradex.compare_generalization` is currently runnable and provides benchmark output over unseen seeds.
+
+## Future TRL Training Loop
+
+- Same environment can emit text observations
+- LLM Overseer can be fine-tuned with TRL
+- Rewards from environment can optimize policy
+
+Planned extension points include:
+- Hugging Face TRL policy optimization
+- Unsloth LoRA for efficient fine-tuning
+- prompt optimization and GRPO-style iteration
+
+## Governance learning flow
+
+![TradeX governance learning flow](assets/tradex-governance-mindmap.svg)
+
+```text
+Agents trade against each other
+        ↓
+AMM price / liquidity changes
+        ↓
+Other agents react strategically
+        ↓
+Market state evolves
+        ↓
+Overseer observes combined signals
+        ↓
+Chooses ALLOW / MONITOR / FLAG / BLOCK
+        ↓
+Environment returns reward
+        ↓
+PPO updates policy now
+TRL updates policy later
+        ↓
+Smarter future governance
+```
+
+## Benchmark framing
+
+TradeX evaluation should compare:
+
+- Heuristic baseline
+- Static prompted model (future)
+- PPO-trained Overseer (current)
+- TRL-trained Overseer (future)
+
+This keeps experimentation honest: strong current PPO baseline, clear roadmap toward Hugging Face-native LLM governance training.
