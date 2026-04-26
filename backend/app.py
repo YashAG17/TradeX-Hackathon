@@ -13,11 +13,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from .routes import meverse, tradex
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PLOTS_DIR = PROJECT_ROOT / "plots"
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 app = FastAPI(
     title="TradeX + MEVerse Dashboard API",
@@ -49,3 +51,22 @@ else:
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "plots_dir_exists": PLOTS_DIR.is_dir()}
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="API route not found")
+        
+        potential_file = FRONTEND_DIST / full_path
+        if potential_file.is_file():
+            return FileResponse(potential_file)
+
+        index_path = FRONTEND_DIST / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+        return {"error": "Frontend build not found"}
+

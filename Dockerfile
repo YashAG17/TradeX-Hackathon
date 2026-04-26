@@ -1,4 +1,13 @@
 ARG BASE_IMAGE=ghcr.io/meta-pytorch/openenv-base:latest
+
+# Build the React frontend
+FROM node:20-slim AS frontend-builder
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
+
 FROM ${BASE_IMAGE} AS builder
 
 WORKDIR /app
@@ -31,10 +40,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         uv sync --no-editable; \
     fi
 
-# Install root-level dependencies (gradio, plotly, numpy) needed by dashboard/app
+# Install root-level dependencies and backend dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
     VIRTUAL_ENV=/app/env/meverse/.venv \
-    uv pip install --python /app/env/meverse/.venv/bin/python -r /app/env/requirements.txt
+    uv pip install --python /app/env/meverse/.venv/bin/python -r /app/env/requirements.txt -r /app/env/backend/requirements.txt
 
 FROM ${BASE_IMAGE}
 
@@ -42,6 +51,7 @@ WORKDIR /app
 
 COPY --from=builder /app/env/meverse/.venv /app/.venv
 COPY --from=builder /app/env /app/env
+COPY --from=frontend-builder /app/dist /app/env/frontend/dist
 # OpenEnv web interface looks for /app/README.md for the Playground readme dropdown
 COPY --from=builder /app/env/README.md /app/README.md
 
@@ -50,4 +60,4 @@ ENV PYTHONPATH="/app/env:/app/env/meverse:$PYTHONPATH"
 
 EXPOSE 7860
 
-CMD ["sh", "-c", "cd /app/env && python app.py"]
+CMD ["sh", "-c", "cd /app/env && uvicorn backend.app:app --host 0.0.0.0 --port 7860"]
