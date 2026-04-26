@@ -60,7 +60,12 @@ def build_model_and_tokenizer(args):
             bnb_4bit_compute_dtype=torch.float16,
         )
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model_name, use_fast=True, fix_mistral_regex=True
+        )
+    except TypeError:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -81,7 +86,7 @@ def build_model_and_tokenizer(args):
         peft_config=peft_config,
         quantization_config=quantization_config,
         device_map="auto",
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     )
     return model, tokenizer
 
@@ -155,13 +160,14 @@ def train(args):
 
         while not done:
             prompt = observation_to_prompt(obs)
-            query_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(
-                model.pretrained_model.device
-            )
+            tokenized = tokenizer(prompt, return_tensors="pt", truncation=True)
+            query_ids = tokenized.input_ids.to(model.pretrained_model.device)
+            attention_mask = tokenized.attention_mask.to(model.pretrained_model.device)
 
             with torch.no_grad():
                 full_ids = model.pretrained_model.generate(
                     query_ids,
+                    attention_mask=attention_mask,
                     max_new_tokens=args.max_new_tokens,
                     do_sample=True,
                     temperature=args.temperature,

@@ -20,13 +20,20 @@ def load_trl_model(model_path: str):
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model path not found: {model_path}")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+    try:
+        # Newer tokenizers may require this to fix known Mistral regex behavior.
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path, use_fast=True, fix_mistral_regex=True
+        )
+    except TypeError:
+        # Backward compatibility for transformers versions that do not expose the flag.
+        tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto",
     )
     model.eval()
@@ -35,11 +42,14 @@ def load_trl_model(model_path: str):
 
 def generate_trl_action(model, tokenizer, obs: Dict) -> Tuple[str, str, str]:
     prompt = observation_to_prompt(obs)
-    input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
+    tokenized = tokenizer(prompt, return_tensors="pt", truncation=True)
+    input_ids = tokenized.input_ids.to(model.device)
+    attention_mask = tokenized.attention_mask.to(model.device)
 
     with torch.no_grad():
         full_ids = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=4,
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
