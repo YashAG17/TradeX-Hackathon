@@ -131,6 +131,10 @@ def train(args):
         # Delegate to low-memory Unsloth path for Colab/disk-constrained setups.
         from .train_trl_unsloth import train_unsloth
 
+        # Keep outputs predictable for downstream eval/plot scripts.
+        if args.output_dir == "models/trl_overseer":
+            args.output_dir = "models/trl_overseer_unsloth"
+
         print("[TRL] --use_unsloth enabled. Switching to Unsloth training path.")
         train_unsloth(args)
         return
