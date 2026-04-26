@@ -1,0 +1,4 @@
+# Extra deps the dashboard backend needs on top of the project root requirements.txt.
+# fastapi, plotly and pydantic are already pinned in ../requirements.txt.
+uvicorn>=0.30
+python-multipart>=0.0.9
