@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1020" />
+      <stop offset="100%" stop-color="#141a2e" />
+    </linearGradient>
+    <linearGradient id="node" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#26354f" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#22d3ee" flood-opacity="0.35"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#67e8f9"/>
+    </marker>
+    <style>
+      .title { font: 700 36px 'Segoe UI', Arial, sans-serif; fill: #e2e8f0; }
+      .subtitle { font: 500 18px 'Segoe UI', Arial, sans-serif; fill: #94a3b8; }
+      .box { fill: url(#node); stroke: #22d3ee; stroke-opacity: .45; stroke-width: 1.2; rx: 14; filter: url(#glow); }
+      .txt { font: 600 20px 'Segoe UI', Arial, sans-serif; fill: #e5f9ff; text-anchor: middle; dominant-baseline: middle; }
+      .small { font: 500 16px 'Segoe UI', Arial, sans-serif; fill: #cbd5e1; text-anchor: middle; dominant-baseline: middle; }
+      .line { stroke: #67e8f9; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+
+  <text x="800" y="58" class="title" text-anchor="middle">TradeX Governance Learning Loop</text>
+  <text x="800" y="88" class="subtitle" text-anchor="middle">From market dynamics to policy optimization</text>
+
+  <!-- Main vertical flow -->
+  <rect class="box" x="560" y="130" width="480" height="58" rx="14"/>
+  <text class="txt" x="800" y="159">Reset OpenEnv Episode</text>
+
+  <rect class="box" x="520" y="218" width="560" height="58" rx="14"/>
+  <text class="txt" x="800" y="247">Market sim generates observations</text>
+
+  <rect class="box" x="540" y="306" width="520" height="58" rx="14"/>
+  <text class="txt" x="800" y="335">Surveillance / Policy agents act</text>
+
+  <rect class="box" x="515" y="394" width="570" height="58" rx="14"/>
+  <text class="txt" x="800" y="423">Overseer reviews context + decisions</text>
+
+  <rect class="box" x="445" y="482" width="710" height="58" rx="14"/>
+  <text class="txt" x="800" y="511">Final intervention: ALLOW / FLAG / MONITOR / BLOCK</text>
+
+  <rect class="box" x="510" y="570" width="580" height="58" rx="14"/>
+  <text class="txt" x="800" y="599">Environment step updates AMM state</text>
+
+  <rect class="box" x="500" y="658" width="600" height="58" rx="14"/>
+  <text class="txt" x="800" y="687">Reward from detection + market health</text>
+
+  <rect class="box" x="555" y="746" width="490" height="58" rx="14"/>
+  <text class="txt" x="800" y="775">Trajectory + rewards logged</text>
+
+  <!-- Side optimization loop -->
+  <rect class="box" x="1130" y="250" width="350" height="58" rx="14"/>
+  <text class="txt" x="1305" y="279">Optimization loop</text>
+
+  <rect class="box" x="1075" y="350" width="450" height="58" rx="14"/>
+  <text class="txt" x="1300" y="379">Next episode with improved policy</text>
+
+  <!-- Connectors -->
+  <path class="line" d="M800 188 L800 218"/>
+  <path class="line" d="M800 276 L800 306"/>
+  <path class="line" d="M800 364 L800 394"/>
+  <path class="line" d="M800 452 L800 482"/>
+  <path class="line" d="M800 540 L800 570"/>
+  <path class="line" d="M800 628 L800 658"/>
+  <path class="line" d="M800 716 L800 746"/>
+
+  <path class="line" d="M1045 775 C1170 775, 1270 690, 1305 600 L1305 408"/>
+  <path class="line" d="M1305 308 L1300 350"/>
+  <path class="line" d="M1075 379 C980 379, 860 320, 830 276"/>
+
+  <!-- Loop return -->
+  <path class="line" d="M520 687 C330 687, 230 560, 230 330 C230 190, 390 159, 560 159"/>
+
+  <text class="small" x="1310" y="630">Policy parameters updated</text>
+  <text class="small" x="300" y="300">episode loop</text>
+</svg>

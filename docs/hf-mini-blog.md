@@ -62,6 +62,8 @@ Planned extension points include:
 
 ## Governance learning flow
 
+![TradeX governance learning flow](assets/tradex-governance-mindmap.svg)
+
 ```text
 Agents trade against each other
         ↓
