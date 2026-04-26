@@ -1,279 +1,137 @@
-"""Competition-style inference runner for the surveillance benchmark."""
+"""Unified TradeX runner: train policy + compare variants + combined final output."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from types import SimpleNamespace
+from typing import Any
 
-from openai import OpenAI
-
-from meverse.env import load_repo_env
-from meverse import SurveillanceAction, choose_surveillance_action, list_task_names
-from meverse.server.meverse_environment import MarketSurveillanceEnvironment
-
-load_repo_env()
-
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-TASK_NAME = os.getenv("MEVERSE_TASK") or os.getenv("TASK_NAME") or "full_market_surveillance"
-BENCHMARK = "amm-market-surveillance"
+from tradex.compare_all import compare_all
+from tradex.eval_trl import DEFAULT_TRL_PATH, DEFAULT_UNSLOTH_PATH
+from tradex.train import train as train_policy
 
 
-def env_flag(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+def _now_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+def _ensure_parent_dir(path_str: str) -> None:
+    Path(path_str).parent.mkdir(parents=True, exist_ok=True)
 
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    error_value = error if error else "null"
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_value}", flush=True)
+def _run_train(episodes: int, onsite: bool, verbose: bool) -> dict[str, Any]:
+    started = time.time()
+    args = SimpleNamespace(episodes=episodes, onsite=onsite, verbose=verbose, allow_streak=0)
 
+    print(f"[TRAIN] start episodes={episodes} onsite={onsite} verbose={verbose}", flush=True)
+    train_policy(args)
 
-def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
-    reward_text = ",".join(f"{reward:.2f}" for reward in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.4f} rewards={reward_text}", flush=True)
-
-
-def build_signal_snapshot(observation) -> dict[str, Any]:
-    return {
-        "task_name": observation.task_name,
-        "step_num": observation.step_num,
-        "max_steps": observation.max_steps,
-        "done": observation.done,
-        "reward": float(observation.reward or 0.0),
-        "current_amm_price": observation.current_amm_price,
-        "liquidity_snapshot": observation.liquidity_snapshot,
-        "recent_trade_count": observation.recent_trade_count,
-        "trades_in_window": observation.trades_in_window,
-        "trade_frequency": observation.trade_frequency,
-        "average_trade_size": observation.average_trade_size,
-        "maximum_trade_size": observation.maximum_trade_size,
-        "recent_slippage_impact": observation.recent_slippage_impact,
-        "time_gap_mean": observation.time_gap_mean,
-        "time_gap_min": observation.time_gap_min,
-        "recent_time_gaps": observation.recent_time_gaps,
-        "recent_price_impacts": observation.recent_price_impacts,
-        "burst_indicator": observation.burst_indicator,
-        "pattern_indicator": observation.pattern_indicator,
-        "suspiciousness_score": observation.suspiciousness_score,
-        "manipulation_score": observation.manipulation_score,
-        "metadata": {
-            "episode_id": observation.metadata.get("episode_id"),
-            "seed": observation.metadata.get("seed"),
-            "eval_mode": observation.metadata.get("eval_mode"),
-            "demo_mode": observation.metadata.get("demo_mode"),
-            "scenario_note": observation.metadata.get("scenario_note"),
-            "amm_price": observation.metadata.get("amm_price"),
-            "amm_liquidity": observation.metadata.get("amm_liquidity"),
-            "bot_confidence": observation.metadata.get("bot_confidence"),
-            "last_action_error": observation.metadata.get("last_action_error"),
-        },
+    model_path = Path("models") / "best_model.pth"
+    result = {
+        "started_at_utc": _now_utc_iso(),
+        "episodes": episodes,
+        "onsite": onsite,
+        "verbose": verbose,
+        "best_model_path": str(model_path),
+        "best_model_exists": model_path.exists(),
+        "duration_seconds": round(time.time() - started, 2),
     }
-
-
-class DebugTelemetryWriter:
-    """Write detailed episode telemetry to JSONL without touching stdout logs."""
-
-    def __init__(self, enabled: bool, task_name: str):
-        self.enabled = enabled
-        self.path: Optional[Path] = None
-        if not enabled:
-            return
-        configured_path = os.getenv("DEBUG_TELEMETRY_PATH", "").strip()
-        if configured_path:
-            self.path = Path(configured_path)
-        else:
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            self.path = Path("telemetry") / f"{task_name}-{stamp}.jsonl"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
-    def write(self, event: str, payload: dict[str, Any]) -> None:
-        if not self.enabled or self.path is None:
-            return
-        record = {
-            "event": event,
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            **payload,
-        }
-        try:
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(record, sort_keys=True) + "\n")
-        except OSError:
-            # Telemetry must never interfere with the benchmark run.
-            pass
-
-
-def llm_action(client: OpenAI, observation) -> str:
-    prompt = {
-        "task": observation.task_name,
-        "step_num": observation.step_num,
-        "max_steps": observation.max_steps,
-        "current_amm_price": observation.current_amm_price,
-        "liquidity_snapshot": observation.liquidity_snapshot,
-        "recent_trade_count": observation.recent_trade_count,
-        "trades_in_window": observation.trades_in_window,
-        "trade_frequency": observation.trade_frequency,
-        "average_trade_size": observation.average_trade_size,
-        "maximum_trade_size": observation.maximum_trade_size,
-        "recent_slippage_impact": observation.recent_slippage_impact,
-        "time_gap_mean": observation.time_gap_mean,
-        "time_gap_min": observation.time_gap_min,
-        "burst_indicator": observation.burst_indicator,
-        "pattern_indicator": observation.pattern_indicator,
-        "suspiciousness_score": observation.suspiciousness_score,
-        "manipulation_score": observation.manipulation_score,
-    }
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        temperature=0.0,
-        max_tokens=12,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a market surveillance controller in a simulated AMM market. "
-                    "Your job: detect suspicious bot-like activity and respond decisively, "
-                    "but NEVER penalize normal healthy trading.\n"
-                    "Actions: ALLOW, FLAG, BLOCK, MONITOR.\n"
-                    "Rules (apply in order, stop at first match):\n"
-                    "1. manipulation_score >= 0.55 → BLOCK\n"
-                    "2. trade_frequency >= 7.0 AND time_gap_min < 0.5 → BLOCK\n"
-                    "3. burst_indicator >= 0.50 AND suspiciousness_score >= 0.45 → BLOCK\n"
-                    "4. suspiciousness_score >= 0.50 AND pattern_indicator >= 0.35 → FLAG\n"
-                    "5. trade_frequency >= 5.0 AND average_trade_size > 18 → FLAG\n"
-                    "6. burst_indicator >= 0.35 OR suspiciousness_score >= 0.40 → MONITOR\n"
-                    "7. Otherwise → ALLOW\n"
-                    "Return JSON only: {\"action\": \"ALLOW\"}"
-                ),
-            },
-            {"role": "user", "content": json.dumps(prompt, separators=(",", ":"))},
-        ],
+    print(
+        f"[TRAIN] end model_exists={result['best_model_exists']} duration_s={result['duration_seconds']}",
+        flush=True,
     )
-    content = (response.choices[0].message.content or "").strip()
-    if content.startswith("```"):
-        content = content.replace("```json", "").replace("```", "").strip()
-    try:
-        parsed = json.loads(content)
-        action = str(parsed.get("action", "")).strip().upper()
-        if action in {"ALLOW", "FLAG", "BLOCK", "MONITOR"}:
-            return action
-    except Exception:
-        pass
-    return choose_surveillance_action(observation)
+    return result
 
 
-def select_action(observation) -> str:
-    if HF_TOKEN:
-        try:
-            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-            return llm_action(client, observation)
-        except Exception:
-            return choose_surveillance_action(observation)
-    return choose_surveillance_action(observation)
-
-
-def run_task(task_name: str) -> None:
-    """Run a single task: reset, step through, grade, and log."""
-    demo_mode = env_flag("DEMO_MODE", False)
-    eval_mode = False if demo_mode else env_flag("EVAL_MODE", True)
-    env = MarketSurveillanceEnvironment(task=task_name, eval_mode=eval_mode, demo_mode=demo_mode)
-    observation = env.reset(task=task_name)
-    telemetry = DebugTelemetryWriter(enabled=env_flag("DEBUG_TELEMETRY", False), task_name=task_name)
-    rewards: list[float] = []
-    steps = 0
-    score = 0.0
-
-    log_start(task_name, BENCHMARK, MODEL_NAME if HF_TOKEN else "heuristic-fallback")
-    telemetry.write(
-        "episode_start",
-        {
-            "task": task_name,
-            "benchmark": BENCHMARK,
-            "model": MODEL_NAME if HF_TOKEN else "heuristic-fallback",
-            "initial_observation": build_signal_snapshot(observation),
-            "environment": env.debug_snapshot(),
-        },
+def _run_compare(episodes: int, trl_model_path: str, unsloth_model_path: str, output_csv: str) -> dict[str, Any]:
+    started = time.time()
+    print(
+        (
+            "[COMPARE] start "
+            f"episodes={episodes} trl_model_path={trl_model_path} unsloth_model_path={unsloth_model_path}"
+        ),
+        flush=True,
     )
 
-    try:
-        while not observation.done:
-            decision_observation = observation
-            pre_action_debug = env.debug_snapshot()
-            final_action = select_action(observation)
-            observation = env.step(SurveillanceAction(action_type=final_action))
-            steps += 1
-            reward = float(observation.reward or 0.0)
-            rewards.append(reward)
-            telemetry.write(
-                "step",
-                {
-                    "step": steps,
-                    "action": final_action,
-                    "reward": reward,
-                    "done": observation.done,
-                    "decision_observation": build_signal_snapshot(decision_observation),
-                    "returned_observation": build_signal_snapshot(observation),
-                    "pre_action_environment": pre_action_debug,
-                    "post_action_environment": env.debug_snapshot(),
-                },
-            )
-            log_step(step=steps, action=final_action, reward=reward, done=observation.done, error=observation.metadata.get("last_action_error"))
-        grade = env.grade()
-        score = grade["score"]
-        success = bool(score >= 0.6)
-    except KeyboardInterrupt:
-        success = False
-        telemetry.write(
-            "episode_error",
-            {
-                "steps_completed": steps,
-                "rewards": rewards,
-            },
-        )
-    except BaseException:
-        success = False
-        telemetry.write(
-            "episode_error",
-            {
-                "steps_completed": steps,
-                "rewards": rewards,
-            },
-        )
-        raise
-    finally:
-        try:
-            final_grade = env.grade() if steps > 0 else None
-        except Exception:
-            final_grade = None
-        if final_grade:
-            score = final_grade["score"]
-        telemetry.write(
-            "episode_end",
-            {
-                "success": success,
-                "steps": steps,
-                "rewards": rewards,
-                "grade": final_grade,
-                "telemetry_path": str(telemetry.path) if telemetry.path else None,
-            },
-        )
-        log_end(success=success, steps=steps, score=score, rewards=rewards)
+    df, rows = compare_all(episodes, trl_model_path, unsloth_model_path)
+    _ensure_parent_dir(output_csv)
+    df.to_csv(output_csv, index=False)
+
+    best_by_reward = max(rows, key=lambda row: row.get("avg_reward", float("-inf"))) if rows else {}
+    best_by_f1 = max(rows, key=lambda row: row.get("f1", float("-inf"))) if rows else {}
+
+    result = {
+        "started_at_utc": _now_utc_iso(),
+        "episodes": episodes,
+        "output_csv": output_csv,
+        "rows": rows,
+        "best_by_avg_reward": best_by_reward.get("policy"),
+        "best_by_f1": best_by_f1.get("policy"),
+        "duration_seconds": round(time.time() - started, 2),
+    }
+    print(
+        (
+            "[COMPARE] end "
+            f"rows={len(rows)} best_reward={result['best_by_avg_reward']} best_f1={result['best_by_f1']} "
+            f"duration_s={result['duration_seconds']}"
+        ),
+        flush=True,
+    )
+    return result
 
 
 def main() -> None:
-    all_tasks = list_task_names()
-    for task_name in all_tasks:
-        run_task(task_name)
+    parser = argparse.ArgumentParser(
+        description="Run TradeX training + comparison and emit one combined final output."
+    )
+    parser.add_argument("--train-episodes", type=int, default=1000)
+    parser.add_argument("--compare-episodes", type=int, default=100)
+    parser.add_argument("--onsite", action="store_true", help="Use CUDA if available during training.")
+    parser.add_argument("--verbose", action="store_true", help="Verbose training logs.")
+    parser.add_argument("--skip-train", action="store_true", help="Skip training and run compare only.")
+    parser.add_argument("--trl-model-path", type=str, default=DEFAULT_TRL_PATH)
+    parser.add_argument("--unsloth-model-path", type=str, default=DEFAULT_UNSLOTH_PATH)
+    parser.add_argument("--output-csv", type=str, default="outputs/final_benchmark.csv")
+    parser.add_argument("--output-json", type=str, default="outputs/final_combined_output.json")
+    args = parser.parse_args()
+
+    combined: dict[str, Any] = {
+        "run_started_at_utc": _now_utc_iso(),
+        "config": vars(args),
+        "train": None,
+        "compare": None,
+    }
+
+    if args.skip_train:
+        print("[TRAIN] skipped via --skip-train", flush=True)
+    else:
+        combined["train"] = _run_train(
+            episodes=args.train_episodes,
+            onsite=args.onsite,
+            verbose=args.verbose,
+        )
+
+    combined["compare"] = _run_compare(
+        episodes=args.compare_episodes,
+        trl_model_path=args.trl_model_path,
+        unsloth_model_path=args.unsloth_model_path,
+        output_csv=args.output_csv,
+    )
+    combined["run_finished_at_utc"] = _now_utc_iso()
+
+    _ensure_parent_dir(args.output_json)
+    with open(args.output_json, "w", encoding="utf-8") as f:
+        json.dump(combined, f, indent=2)
+
+    print("\nFINAL COMBINED OUTPUT", flush=True)
+    print(json.dumps(combined, indent=2), flush=True)
+    print(f"\nSaved combined JSON: {args.output_json}", flush=True)
+    print(f"Saved compare CSV: {args.output_csv}", flush=True)
 
 
 if __name__ == "__main__":

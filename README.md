@@ -243,7 +243,7 @@ python -m tradex.compare_generalization
 
 ### 1) Reward vs Episodes (RL objective trend)
 
-![Reward vs Episodes](docs/assets/reward-vs-episodes.png)
+![Reward vs Episodes](public/reward-vs-episodes.png)
 
 - **What this shows:** per-episode reward (light line) and rolling average (dark line).
 - **How to read it:** higher rolling average means the policy is improving expected governance decisions over time.
@@ -251,7 +251,7 @@ python -m tradex.compare_generalization
 
 ### 2) Precision vs Recall Tracking (detection quality trade-off)
 
-![Precision vs Recall Tracking](docs/assets/precision-recall-tracking.png)
+![Precision vs Recall Tracking](public/precision-recall-tracking.png)
 
 - **What this shows:** precision (green) vs recall (orange) during training.
 - **How to read it:** high precision with low recall means conservative blocking (fewer false positives but more missed attacks).
@@ -259,7 +259,7 @@ python -m tradex.compare_generalization
 
 ### 3) Detection Capability (True Positives vs False Positives)
 
-![Detection Capability](docs/assets/detection-capability.png)
+![Detection Capability](public/detection-capability.png)
 
 - **What this shows:** smoothed true positives (green area) against false positives (red line).
 - **How to read it:** ideal behavior is high green with low red most of the time.
@@ -267,7 +267,7 @@ python -m tradex.compare_generalization
 
 ### 4) Final Price Error vs Episode (market stability)
 
-![Final Price Error](docs/assets/final-price-error.png)
+![Final Price Error](public/final-price-error.png)
 
 - **What this shows:** absolute deviation from target AMM price at episode end, plus rolling average.
 - **How to read it:** lower values mean better market stability preservation under interventions.

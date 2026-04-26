@@ -153,3 +153,13 @@ TradeX evaluation should compare:
 - TRL-trained Overseer (future)
 
 This keeps experimentation honest: strong current PPO baseline, clear roadmap toward Hugging Face-native LLM governance training.
+
+## Training charts
+
+![Reward vs Episodes](../public/reward-vs-episodes.png)
+
+![Precision vs Recall Tracking](../public/precision-recall-tracking.png)
+
+![Detection Capability](../public/detection-capability.png)
+
+![Final Price Error](../public/final-price-error.png)
