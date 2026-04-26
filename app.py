@@ -310,7 +310,7 @@ def playground_start(seed: int, stage: int, use_overseer: bool, state: dict | No
     state["use_overseer"] = bool(use_overseer)
     state["history"]["agent_types"] = {i: a.__class__.__name__ for i, a in enumerate(env.agents)}
     state["history"]["step"].append(0)
-    state["history"]["price"].append(env.price)
+    state["history"]["price"].append(float(env.price))
     state["history"]["threat"].append(float(env.current_threat_score))
     state["history"]["reward"].append(0.0)
     state["history"]["cum_reward"].append(0.0)
@@ -367,11 +367,11 @@ def playground_step(state: dict | None):
         display_action = action_str
 
     h = state["history"]
-    h["step"].append(env.timestep)
-    h["price"].append(env.price)
+    h["step"].append(int(env.timestep))
+    h["price"].append(float(env.price))
     h["threat"].append(float(info["threat_score"]))
     h["reward"].append(float(reward))
-    h["cum_reward"].append(h["cum_reward"][-1] + float(reward))
+    h["cum_reward"].append(float(h["cum_reward"][-1]) + float(reward))
     h["action"].append(display_action)
 
     return (
@@ -440,23 +440,25 @@ def _per_episode_metrics(num_episodes: int, use_overseer: bool, deterministic: b
         fns.append(ep_fn)
         price_errs.append(info["price_error"])
     return {
-        "rewards": np.array(rewards, dtype=np.float32),
-        "correct": np.array(correct, dtype=np.float32),
-        "fps": np.array(fps, dtype=np.float32),
-        "fns": np.array(fns, dtype=np.float32),
-        "price_errs": np.array(price_errs, dtype=np.float32),
+        "rewards": [float(v) for v in rewards],
+        "correct": [int(v) for v in correct],
+        "fps": [int(v) for v in fps],
+        "fns": [int(v) for v in fns],
+        "price_errs": [float(v) for v in price_errs],
     }
 
 
-def _smooth(values: np.ndarray, window: int = 10) -> np.ndarray:
-    if len(values) < window:
-        return values
-    return np.convolve(values, np.ones(window) / window, mode="valid")
+def _smooth(values, window: int = 10) -> list[float]:
+    """Centered rolling-mean smoother that always returns a Python list of floats."""
+    arr = np.asarray(values, dtype=np.float64)
+    if len(arr) < window:
+        return arr.tolist()
+    return np.convolve(arr, np.ones(window) / window, mode="valid").tolist()
 
 
 def _curve_reward(metrics: dict) -> go.Figure:
-    rewards = metrics["rewards"]
-    eps = np.arange(1, len(rewards) + 1)
+    rewards = [float(v) for v in metrics["rewards"]]
+    eps = list(range(1, len(rewards) + 1))
     smooth = _smooth(rewards, window=10)
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -466,8 +468,9 @@ def _curve_reward(metrics: dict) -> go.Figure:
         opacity=0.4,
     ))
     if len(smooth) > 0:
+        smooth_x = eps[len(eps) - len(smooth):]
         fig.add_trace(go.Scatter(
-            x=eps[len(eps) - len(smooth):], y=smooth, mode="lines",
+            x=smooth_x, y=smooth, mode="lines",
             name="Rolling Avg (10)",
             line=dict(color=COLORS["accent"], width=3),
         ))
@@ -482,12 +485,18 @@ def _curve_reward(metrics: dict) -> go.Figure:
 
 
 def _curve_precision_recall(metrics: dict) -> go.Figure:
-    correct = metrics["correct"]
-    fps = metrics["fps"]
-    fns = metrics["fns"]
-    precisions = np.where((correct + fps) > 0, correct / (correct + fps + 1e-9) * 100, 0.0)
-    recalls = np.where((correct + fns) > 0, correct / (correct + fns + 1e-9) * 100, 0.0)
-    eps = np.arange(1, len(correct) + 1)
+    correct = [float(v) for v in metrics["correct"]]
+    fps = [float(v) for v in metrics["fps"]]
+    fns = [float(v) for v in metrics["fns"]]
+    precisions = [
+        (c / (c + f) * 100.0) if (c + f) > 0 else 0.0
+        for c, f in zip(correct, fps)
+    ]
+    recalls = [
+        (c / (c + f) * 100.0) if (c + f) > 0 else 0.0
+        for c, f in zip(correct, fns)
+    ]
+    eps = list(range(1, len(correct) + 1))
     p_smooth = _smooth(precisions, window=10)
     r_smooth = _smooth(recalls, window=10)
     fig = go.Figure()
@@ -513,9 +522,9 @@ def _curve_precision_recall(metrics: dict) -> go.Figure:
 
 
 def _curve_detection(metrics: dict) -> go.Figure:
-    correct = metrics["correct"]
-    fps = metrics["fps"]
-    eps = np.arange(1, len(correct) + 1)
+    correct = [float(v) for v in metrics["correct"]]
+    fps = [float(v) for v in metrics["fps"]]
+    eps = list(range(1, len(correct) + 1))
     tp_smooth = _smooth(correct, window=10)
     fp_smooth = _smooth(fps, window=10)
     fig = go.Figure()
@@ -542,8 +551,8 @@ def _curve_detection(metrics: dict) -> go.Figure:
 
 
 def _curve_price_error(metrics: dict) -> go.Figure:
-    errs = metrics["price_errs"]
-    eps = np.arange(1, len(errs) + 1)
+    errs = [float(v) for v in metrics["price_errs"]]
+    eps = list(range(1, len(errs) + 1))
     smooth = _smooth(errs, window=10)
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -571,13 +580,15 @@ def _curve_price_error(metrics: dict) -> go.Figure:
 def generate_curves(num_episodes: int):
     n = max(20, int(num_episodes))
     metrics = _per_episode_metrics(n, use_overseer=True, deterministic=True)
+    avg_reward = sum(metrics["rewards"]) / max(1, len(metrics["rewards"]))
+    mean_price_err = sum(metrics["price_errs"]) / max(1, len(metrics["price_errs"]))
     summary = (
         f"Generated **{n}** episodes against the trained PPO overseer.\n\n"
-        f"- **Average reward:** {metrics['rewards'].mean():.2f}\n"
-        f"- **Total correct blocks (TP):** {int(metrics['correct'].sum())}\n"
-        f"- **Total false positives (FP):** {int(metrics['fps'].sum())}\n"
-        f"- **Total missed attacks (FN):** {int(metrics['fns'].sum())}\n"
-        f"- **Mean price error:** {metrics['price_errs'].mean():.4f}\n"
+        f"- **Average reward:** {avg_reward:.2f}\n"
+        f"- **Total correct blocks (TP):** {sum(metrics['correct'])}\n"
+        f"- **Total false positives (FP):** {sum(metrics['fps'])}\n"
+        f"- **Total missed attacks (FN):** {sum(metrics['fns'])}\n"
+        f"- **Mean price error:** {mean_price_err:.4f}\n"
     )
     return (
         _curve_reward(metrics),
