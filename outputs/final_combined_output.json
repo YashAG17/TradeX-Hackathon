@@ -1,0 +1,89 @@
+{
+  "run_started_at_utc": "2026-04-26T08:31:16.687937+00:00",
+  "config": {
+    "train_episodes": 1000,
+    "compare_episodes": 100,
+    "onsite": false,
+    "verbose": false,
+    "skip_train": false,
+    "trl_model_path": "models/trl_overseer/final",
+    "unsloth_model_path": "models/trl_overseer_unsloth/final",
+    "output_csv": "outputs/final_benchmark.csv",
+    "output_json": "outputs/final_combined_output.json"
+  },
+  "train": {
+    "started_at_utc": "2026-04-26T08:33:56.026718+00:00",
+    "episodes": 1000,
+    "onsite": false,
+    "verbose": false,
+    "best_model_path": "models\\best_model.pth",
+    "best_model_exists": true,
+    "duration_seconds": 159.34
+  },
+  "compare": {
+    "started_at_utc": "2026-04-26T08:34:13.496855+00:00",
+    "episodes": 100,
+    "output_csv": "outputs/final_benchmark.csv",
+    "rows": [
+      {
+        "policy": "Heuristic baseline",
+        "avg_reward": 0.5175000000000006,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "false_positives": 0.0,
+        "missed_attacks": 0.65,
+        "market_stability": 48.96936125601934,
+        "intervention_rate": 0.0
+      },
+      {
+        "policy": "PPO deterministic",
+        "avg_reward": 1.0574999999999992,
+        "precision": 11.38211382113821,
+        "recall": 87.5,
+        "f1": 20.14388489208633,
+        "false_positives": 2.18,
+        "missed_attacks": 0.04,
+        "market_stability": 51.29788231037555,
+        "intervention_rate": 5.58
+      },
+      {
+        "policy": "PPO stochastic",
+        "avg_reward": 1.5974999999999988,
+        "precision": 15.789473684210526,
+        "recall": 89.1891891891892,
+        "f1": 26.829268292682926,
+        "false_positives": 1.76,
+        "missed_attacks": 0.04,
+        "market_stability": 40.8622709414952,
+        "intervention_rate": 4.74
+      },
+      {
+        "policy": "TRL model (missing)",
+        "avg_reward": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "false_positives": 0.0,
+        "missed_attacks": 0.0,
+        "market_stability": 100.0,
+        "intervention_rate": 0.0
+      },
+      {
+        "policy": "TRL Unsloth model (missing)",
+        "avg_reward": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "false_positives": 0.0,
+        "missed_attacks": 0.0,
+        "market_stability": 100.0,
+        "intervention_rate": 0.0
+      }
+    ],
+    "best_by_avg_reward": "PPO stochastic",
+    "best_by_f1": "PPO stochastic",
+    "duration_seconds": 17.47
+  },
+  "run_finished_at_utc": "2026-04-26T08:34:13.496855+00:00"
+}
