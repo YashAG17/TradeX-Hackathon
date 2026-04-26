@@ -8,3 +8,7 @@ fastapi==0.112.4
 starlette==0.38.6
 pydantic==2.9.2
 plotly>=5.18.0
+# Python 3.13 removed the stdlib `audioop` module that pydub (a Gradio dep)
+# imports. We pin python_version: "3.11" in README, but ship audioop-lts
+# as a fallback in case HF ever upgrades the runtime.
+audioop-lts; python_version >= "3.13"
